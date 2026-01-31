@@ -1,13 +1,19 @@
 use crate::ast::Schema;
-use crate::error::CharmeleonError;
+use crate::error::ChameleonError;
 
-// LALRPOP genera esto
-lalrpop_mod!(pub schema);
+// Incluir el módulo parser generado por lalrpop
+#[allow(clippy::all)]
+pub mod schema {
+    use crate::ast::{EntityItem, FieldModifier};
+    use crate::ast::*;
+    
+    include!(concat!(env!("OUT_DIR"), "/parser/schema.rs"));
+}
 
-pub fn parse_schema(input: &str) -> Result<Schema, CharmeleonError> {
+pub fn parse_schema(input: &str) -> Result<Schema, ChameleonError> {
     schema::SchemaParser::new()
         .parse(input)
-        .map_err(|e| CharmeleonError::ParseError(format!("{:?}", e)))
+        .map_err(|e| ChameleonError::ParseError(format!("{:?}", e)))
 }
 
 #[cfg(test)]

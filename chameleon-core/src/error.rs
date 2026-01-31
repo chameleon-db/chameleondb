@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum CharmeleonError {
+pub enum ChameleonError {
     #[error("Parse error: {0}")]
     ParseError(String),
     

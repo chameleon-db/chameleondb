@@ -6,7 +6,7 @@ grammar;
 // Whitespace y comentarios
 match {
     r"\s*" => { },
-    r"//[^\n\r]*[\n\r]*" => { }, // comentarios de línea
+    r"//[^\n\r]*[\n\r]*" => { },
     _
 }
 
@@ -35,14 +35,10 @@ Entity: Entity = {
     }
 };
 
-enum EntityItem {
-    Field(Field),
-    Relation(Relation),
-}
-
+// EntityItem como tipo Rust
 EntityItem: EntityItem = {
-    <Field> => EntityItem::Field(<>),
-    <Relation> => EntityItem::Relation(<>),
+    <f:Field> => EntityItem::Field(f),
+    <r:Relation> => EntityItem::Relation(r),
 };
 
 // Field definition
@@ -70,18 +66,11 @@ Field: Field = {
     }
 };
 
-enum FieldModifier {
-    Primary,
-    Unique,
-    Nullable,
-    Default(DefaultValue),
-}
-
 FieldModifier: FieldModifier = {
     "primary" => FieldModifier::Primary,
     "unique" => FieldModifier::Unique,
     "nullable" => FieldModifier::Nullable,
-    "default" <DefaultValue> => FieldModifier::Default(<>),
+    "default" <d:DefaultValue> => FieldModifier::Default(d),
 };
 
 FieldType: FieldType = {
@@ -96,7 +85,7 @@ FieldType: FieldType = {
 DefaultValue: DefaultValue = {
     "now()" => DefaultValue::Now,
     "uuid_v4()" => DefaultValue::UUIDv4,
-    <StringLit> => DefaultValue::Literal(<>),
+    <s:StringLit> => DefaultValue::Literal(s),
 };
 
 // Relation definition
@@ -124,7 +113,8 @@ Relation: Relation = {
 
 // Tokens básicos
 Ident: String = r"[a-zA-Z_][a-zA-Z0-9_]*" => <>.to_string();
+
 StringLit: String = r#""([^"\\]|\\.)*""# => {
     let s = <>;
-    s[1..s.len()-1].to_string()  // quitar comillas
+    s[1..s.len()-1].to_string()
 };

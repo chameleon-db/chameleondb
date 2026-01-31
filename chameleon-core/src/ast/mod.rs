@@ -57,6 +57,21 @@ pub enum RelationKind {
     ManyToMany,
 }
 
+// Helper types para el parser LALRPOP
+#[derive(Debug)]
+pub enum EntityItem {
+    Field(Field),
+    Relation(Relation),
+}
+
+#[derive(Debug)]
+pub enum FieldModifier {
+    Primary,
+    Unique,
+    Nullable,
+    Default(DefaultValue),
+}
+
 impl Schema {
     pub fn new() -> Self {
         Schema {

@@ -1,0 +1,55 @@
+use std::ffi::{CStr, CString};
+use std::ptr;
+
+// External declarations (simulating C caller)
+extern "C" {
+    fn chameleon_parse_schema(input: *const i8, error_out: *mut *mut i8) -> *mut i8;
+    fn chameleon_free_string(s: *mut i8);
+    fn chameleon_version() -> *const i8;
+}
+
+#[test]
+fn test_ffi_roundtrip() {
+    let schema = r#"
+        entity User {
+            id: uuid primary,
+            email: string unique,
+            orders: [Order] via user_id,
+        }
+        
+        entity Order {
+            id: uuid primary,
+            total: decimal,
+        }
+    "#;
+    
+    let input = CString::new(schema).unwrap();
+    let mut error: *mut i8 = ptr::null_mut();
+    
+    unsafe {
+        let result = chameleon_parse_schema(input.as_ptr(), &mut error);
+        
+        assert!(!result.is_null(), "Should parse successfully");
+        assert!(error.is_null(), "Should have no errors");
+        
+        let json = CStr::from_ptr(result).to_str().unwrap();
+        
+        // Verify JSON structure
+        assert!(json.contains("\"User\""));
+        assert!(json.contains("\"Order\""));
+        assert!(json.contains("\"email\""));
+        
+        println!("Parsed JSON:\n{}", json);
+        
+        chameleon_free_string(result);
+    }
+}
+
+#[test]
+fn test_version() {
+    unsafe {
+        let version = CStr::from_ptr(chameleon_version());
+        let version_str = version.to_str().unwrap();
+        assert_eq!(version_str, env!("CARGO_PKG_VERSION"));
+    }
+}
