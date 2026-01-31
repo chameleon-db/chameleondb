@@ -1,0 +1,33 @@
+---
+config:
+  layout: fixed
+---
+flowchart TB
+ subgraph CT["Compile Time"]
+        S2["Parse"]
+        S1["Schema DSL"]
+        S3["Type Check"]
+        S4["Code Gen"]
+        S5["Type-safe API"]
+  end
+ subgraph RT["Runtime"]
+    direction LR
+        R2["Validate FFI"]
+        R1["Query Builder"]
+        R3["Optimize"]
+        R4["Execute SQL"]
+        R5["Map Results"]
+  end
+    S1 --> S2
+    S2 --> S3
+    S3 --> S4
+    S4 --> S5
+    R1 --> R2
+    R2 --> R3
+    R3 --> R4
+    R4 --> R5
+    S5 -. Links to .-> R1
+
+    style S3 fill:#e74c3c
+    style R2 fill:#e74c3c
+    style R4 fill:#3498db

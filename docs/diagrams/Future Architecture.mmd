@@ -1,0 +1,18 @@
+graph TB
+    subgraph "ML Layer (Future)"
+        ML_OPT[ML-based Optimizer]
+        ML_INDEX[Adaptive Indexing]
+        ML_CACHE[Smart Query Cache]
+    end
+
+    subgraph "Multi-Backend (Future)"
+        PG[(PostgreSQL)]
+        MYSQL[(MySQL)]
+        SQLITE[(SQLite)]
+        DYNAMO[(DynamoDB)]
+    end
+
+    ML_OPT --> PG
+    ML_OPT --> MYSQL
+    ML_INDEX --> SQLITE
+    ML_CACHE --> DYNAMO

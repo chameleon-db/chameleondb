@@ -1,0 +1,52 @@
+---
+config:
+  layout: fixed
+---
+flowchart TB
+ subgraph subGraph0["Developer Experience"]
+        SCHEMA["Schema DSL<br>*.cham files"]
+        RUST_API["Rust Query API<br>Type-safe lambdas"]
+        GO_API["Go Query API<br>Builder pattern"]
+  end
+ subgraph subGraph1["Rust Core (libchameleon.so)"]
+        PARSER["Parser<br>LALRPOP"]
+        AST["AST<br>Schema representation"]
+        TYPECK["Type Checker<br>Compile-time validation"]
+        CODEGEN["Code Generator<br>Type-safe bindings"]
+        OPT["Query Optimizer<br>Rule-based v1.0"]
+  end
+ subgraph subGraph2["FFI Layer (C ABI)"]
+        FFI_PARSE["parse_schema"]
+        FFI_VALIDATE["validate_query"]
+        FFI_OPTIMIZE["optimize_query"]
+  end
+ subgraph subGraph3["Go Runtime (chameleon binary)"]
+        ENGINE["Query Engine"]
+        EXEC["Query Executor"]
+        POOL["Connection Pool<br>pgx"]
+        CACHE["Query Cache"]
+  end
+ subgraph subGraph4["Database Layer"]
+        PG[("PostgreSQL")]
+  end
+    SCHEMA --> PARSER
+    PARSER --> AST
+    AST --> TYPECK
+    TYPECK --> CODEGEN
+    CODEGEN --> RUST_API & GO_API
+    RUST_API --> FFI_VALIDATE
+    GO_API --> FFI_VALIDATE
+    FFI_VALIDATE --> TYPECK & OPT
+    OPT --> FFI_OPTIMIZE
+    FFI_OPTIMIZE --> ENGINE
+    ENGINE --> EXEC
+    EXEC --> POOL & CACHE
+    POOL --> PG
+    CACHE --> EXEC
+
+    style PARSER fill:#e74c3c
+    style TYPECK fill:#e74c3c
+    style OPT fill:#e74c3c
+    style ENGINE fill:#3498db
+    style EXEC fill:#3498db
+    style PG fill:#2ecc71

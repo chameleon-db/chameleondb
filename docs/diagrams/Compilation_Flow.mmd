@@ -1,0 +1,32 @@
+sequenceDiagram
+    participant Dev as Developer
+    participant Parser as Rust Parser
+    participant TypeChecker as Type Checker
+    participant CodeGen as Code Generator
+    participant Runtime as Go Runtime
+    participant DB as PostgreSQL
+
+    Dev->>Parser: schema.cham
+    Parser->>Parser: Tokenize + Parse
+    Parser->>TypeChecker: AST
+    
+    TypeChecker->>TypeChecker: Validate entities
+    TypeChecker->>TypeChecker: Validate relations
+    TypeChecker->>TypeChecker: Check constraints
+    
+    TypeChecker->>CodeGen: Validated Schema
+    CodeGen->>CodeGen: Generate Rust types
+    CodeGen->>CodeGen: Generate Go bindings
+    
+    CodeGen-->>Dev: Type-safe API
+    
+    Note over Dev,Runtime: Runtime (Query Execution)
+    
+    Dev->>Runtime: db.users().filter(...)
+    Runtime->>TypeChecker: Validate query (FFI)
+    TypeChecker-->>Runtime: Validated AST
+    
+    Runtime->>Runtime: Optimize query
+    Runtime->>DB: Execute SQL
+    DB-->>Runtime: Result set
+    Runtime-->>Dev: Typed results
