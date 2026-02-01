@@ -1,5 +1,5 @@
 // ChameleonDB Schema Example
-// This demonstrates the core features of the schema DSL
+// Demonstrates core features including multi-backend annotations
 
 entity User {
     id: uuid primary,
@@ -7,7 +7,13 @@ entity User {
     name: string,
     age: int nullable,
     created_at: timestamp default now(),
+
+    // Relations
     orders: [Order] via user_id,
+
+    // Multi-backend (future backends)
+    session: string @cache,
+    monthly_spent: decimal @olap,
 }
 
 entity Order {
@@ -15,13 +21,33 @@ entity Order {
     total: decimal,
     status: string,
     created_at: timestamp default now(),
+
+    // Relations
     user: User,
     items: [OrderItem] via order_id,
+
+    // Multi-backend
+    realtime_status: string @cache,
 }
 
 entity OrderItem {
     id: uuid primary,
     quantity: int,
     price: decimal,
+
+    // Relations
     order: Order,
+}
+
+entity Product {
+    id: uuid primary,
+    name: string,
+    price: decimal,
+    stock: int,
+
+    // Multi-backend
+    views_today: int @cache,
+    monthly_sales: decimal @olap,
+    embedding: vector(384) @vector,
+    tags: [string],
 }

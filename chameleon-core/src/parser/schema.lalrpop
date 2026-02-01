@@ -43,7 +43,7 @@ EntityItem: EntityItem = {
 
 // Field definition
 Field: Field = {
-    <name:Ident> ":" <ft:FieldType> <mods:FieldModifier*> "," => {
+    <name:Ident> ":" <ft:FieldType> <mods:FieldModifier*> <backend:BackendAnnotation?> "," => {
         let mut field = Field {
             name,
             field_type: ft,
@@ -51,6 +51,7 @@ Field: Field = {
             unique: false,
             primary_key: false,
             default: None,
+            backend: backend,
         };
         
         for modifier in mods {
@@ -80,6 +81,9 @@ FieldType: FieldType = {
     "decimal" => FieldType::Decimal,
     "bool" => FieldType::Bool,
     "timestamp" => FieldType::Timestamp,
+    "float" => FieldType::Float,
+    "vector" "(" <n:NumericLit> ")" => FieldType::Vector(n),
+    "[" <inner:FieldType> "]" => FieldType::Array(Box::new(inner)),
 };
 
 DefaultValue: DefaultValue = {
@@ -111,8 +115,17 @@ Relation: Relation = {
     },
 };
 
+// Backend Annotations
+BackendAnnotation: BackendAnnotation = {
+    "@cache" => BackendAnnotation::Cache,
+    "@olap" => BackendAnnotation::OLAP,
+    "@vector" => BackendAnnotation::Vector,
+    "@ml" => BackendAnnotation::ML,
+};
+
 // Tokens básicos
 Ident: String = r"[a-zA-Z_][a-zA-Z0-9_]*" => <>.to_string();
+NumericLit: usize = r"[0-9]+" => <>.parse::<usize>().unwrap();
 
 StringLit: String = r#""([^"\\]|\\.)*""# => {
     let s = <>;

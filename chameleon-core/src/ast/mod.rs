@@ -21,6 +21,7 @@ pub struct Field {
     pub unique: bool,
     pub primary_key: bool,
     pub default: Option<DefaultValue>,
+    pub backend: Option<BackendAnnotation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -31,6 +32,9 @@ pub enum FieldType {
     Decimal,
     Bool,
     Timestamp,
+    Float,
+    Vector(usize),
+    Array(Box<FieldType>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -70,6 +74,24 @@ pub enum FieldModifier {
     Unique,
     Nullable,
     Default(DefaultValue),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum BackendAnnotation {
+    OLTP,                           // default, implícito
+    Cache,                          // @cache
+    OLAP,                           // @olap
+    Vector,                         // @vector
+    ML,                             // @ml (futuro)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BackendCapabilities {
+    pub name: String,
+    pub annotation: BackendAnnotation,
+    pub supports_transactions: bool,
+    pub supports_relations: bool,
+    pub fallback: Option<BackendAnnotation>,  // ej: @cache fallback a OLTP
 }
 
 impl Schema {
