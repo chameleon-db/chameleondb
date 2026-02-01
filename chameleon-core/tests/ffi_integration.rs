@@ -22,6 +22,8 @@ fn test_ffi_roundtrip() {
         entity Order {
             id: uuid primary,
             total: decimal,
+            user_id: uuid,
+            user: User,
         }
     "#;
     

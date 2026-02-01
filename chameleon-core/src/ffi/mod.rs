@@ -113,18 +113,12 @@ pub unsafe extern "C" fn chameleon_validate_schema(
         }
     };
 
-    // Basic validation (TODO: implement full type checker)
-    if schema.entities.is_empty() {
-        set_error(error_out, "Schema has no entities");
+    // Use the real type checker
+    let result = crate::typechecker::type_check(&schema);
+    
+    if !result.is_valid() {
+        set_error(error_out, &result.error_report());
         return ChameleonResult::ValidationError;
-    }
-
-    // Check for entities with no fields
-    for (name, entity) in &schema.entities {
-        if entity.fields.is_empty() && entity.relations.is_empty() {
-            set_error(error_out, &format!("Entity '{}' has no fields or relations", name));
-            return ChameleonResult::ValidationError;
-        }
     }
 
     ChameleonResult::Ok
