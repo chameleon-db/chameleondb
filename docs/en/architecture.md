@@ -1,16 +1,17 @@
-docs/architecture.md
+docs/en/architecture.md
 
 # chameleonDB Architecture
+![Chameleon logo](../logo-200x150.png)
 
 ## System Overview
-![System Overview diagram](diagrams/system_overview.png)
+![System Overview diagram](../diagrams/system_overview.png)
 
 ## 2. Compilation Flow
-![Compilation Flow](diagrams/Compilation_Flow.png)
+![Compilation Flow](../diagrams/Compilation_Flow.png)
 
 
 ## 3. Data Flow
-![Schema DSL Pipeline](diagrams/Data%20Flow.png)
+![Schema DSL Pipeline](../diagrams/Data%20Flow.png)
 
 ## Component Responsibilities
 
@@ -53,7 +54,7 @@ docs/architecture.md
 - **Development velocity**: Go runtime is faster to iterate on
 
 ## Future Architecture (v2.0+)
-![Future Architecture](diagrams/Future%20Architecture.png)
+![Future Architecture](../diagrams/Future%20Architecture.png)
 
 ## Performance Targets (v1.0)
 
