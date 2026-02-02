@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -9,7 +10,9 @@ import (
 
 // Engine is the main entry point for ChameleonDB
 type Engine struct {
-	schema *Schema
+	schema    *Schema
+	connector *Connector
+	executor  *Executor
 }
 
 // NewEngine creates a new ChameleonDB engine
@@ -58,4 +61,26 @@ func (e *Engine) GetSchema() *Schema {
 // Version returns the engine version
 func (e *Engine) Version() string {
 	return ffi.Version()
+}
+
+// Connect establishes a database connection
+func (e *Engine) Connect(ctx context.Context, config ConnectorConfig) error {
+	e.connector = NewConnector(config)
+	if err := e.connector.Connect(ctx); err != nil {
+		return err
+	}
+	e.executor = NewExecutor(e.connector)
+	return nil
+}
+
+// Close closes the database connection
+func (e *Engine) Close() {
+	if e.connector != nil {
+		e.connector.Close()
+	}
+}
+
+// IsConnected returns true if connected to a database
+func (e *Engine) IsConnected() bool {
+	return e.connector != nil && e.connector.IsConnected()
 }

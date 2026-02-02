@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -173,6 +174,14 @@ func (qb *QueryBuilder) ToSQL() (*GeneratedSQL, error) {
 	}
 
 	return &result, nil
+}
+
+// Execute generates SQL and runs it against the database
+func (qb *QueryBuilder) Execute(ctx context.Context) (*QueryResult, error) {
+	if qb.engine.executor == nil {
+		return nil, fmt.Errorf("not connected to database, call Engine.Connect() first")
+	}
+	return qb.engine.executor.Execute(ctx, qb)
 }
 
 // --- Helpers ---
