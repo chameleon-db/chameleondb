@@ -221,6 +221,51 @@ pub unsafe extern "C" fn chameleon_generate_sql(
     }
 }
 
+/// Generate migration SQL from a schema JSON
+///
+/// Input:  schema_json - serialized Schema
+/// Output: returns the DDL SQL string directly
+///         error_out   - error message on failure
+#[no_mangle]
+pub unsafe extern "C" fn chameleon_generate_migration(
+    schema_json: *const c_char,
+    error_out: *mut *mut c_char,
+) -> ChameleonResult {
+    if schema_json.is_null() {
+        set_error(error_out, "Schema JSON is null");
+        return ChameleonResult::InternalError;
+    }
+
+    let json_str = match CStr::from_ptr(schema_json).to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            set_error(error_out, &format!("Invalid UTF-8: {}", e));
+            return ChameleonResult::InternalError;
+        }
+    };
+
+    let schema: Schema = match serde_json::from_str(json_str) {
+        Ok(s) => s,
+        Err(e) => {
+            set_error(error_out, &format!("Schema deserialization error: {}", e));
+            return ChameleonResult::InternalError;
+        }
+    };
+
+    match crate::migration::generate_migration(&schema) {
+        Ok(migration) => {
+            let c_str = CString::new(migration.sql).unwrap();
+            let ptr = c_str.into_raw();
+            *error_out = ptr;
+            ChameleonResult::Ok
+        }
+        Err(e) => {
+            set_error(error_out, &format!("Migration generation error: {}", e));
+            ChameleonResult::ValidationError
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

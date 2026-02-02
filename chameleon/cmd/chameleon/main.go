@@ -38,6 +38,13 @@ func main() {
 		}
 		schemaFile := os.Args[2]
 		runQuerySession(schemaFile)
+	case "migrate":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: chameleon migrate <schema.cham>")
+			fmt.Println("       Generate migration SQL from schema")
+			os.Exit(1)
+		}
+		cmdMigrate(os.Args[2])
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 		printUsage()
@@ -52,6 +59,8 @@ func printUsage() {
 	fmt.Println("  chameleon version              Show version")
 	fmt.Println("  chameleon parse <file>         Parse and display schema")
 	fmt.Println("  chameleon validate <file>      Validate schema")
+	fmt.Println("  chameleon migrate <file>       Generate migration SQL")
+	fmt.Println("  chameleon query <file>         Interactive query session")
 }
 
 func cmdVersion() {
@@ -87,6 +96,23 @@ func cmdValidate(filepath string) {
 	}
 
 	fmt.Println("✅ Schema is valid")
+}
+
+func cmdMigrate(filepath string) {
+	eng := engine.NewEngine()
+	_, err := eng.LoadSchemaFromFile(filepath)
+	if err != nil {
+		fmt.Printf("Error loading schema: %v\n", err)
+		os.Exit(1)
+	}
+
+	sql, err := eng.GenerateMigration()
+	if err != nil {
+		fmt.Printf("Error generating migration: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println(sql)
 }
 
 func runQuerySession(schemaFile string) {

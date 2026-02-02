@@ -16,6 +16,7 @@ ChameleonResult chameleon_validate_schema(const char* schema_json, char** error_
 void chameleon_free_string(char* s);
 const char* chameleon_version(void);
 extern int chameleon_generate_sql(const char* query_json, const char* schema_json, char** error_out);
+extern int chameleon_generate_migration(const char* schema_json, char** error_out);
 */
 import "C"
 import (
@@ -112,6 +113,33 @@ func GenerateSQL(queryJSON string, schemaJSON string) (string, error) {
 	// On success, error_out contains the result JSON
 	if errorOut == nil {
 		return "", fmt.Errorf("SQL generation returned null")
+	}
+
+	output := C.GoString(errorOut)
+	C.chameleon_free_string(errorOut)
+	return output, nil
+}
+
+// GenerateMigration calls the Rust migration generator
+func GenerateMigration(schemaJSON string) (string, error) {
+	cSchema := C.CString(schemaJSON)
+	defer C.free(unsafe.Pointer(cSchema))
+
+	var errorOut *C.char
+
+	result := C.chameleon_generate_migration(cSchema, &errorOut)
+
+	if result != 0 {
+		if errorOut != nil {
+			errMsg := C.GoString(errorOut)
+			C.chameleon_free_string(errorOut)
+			return "", fmt.Errorf("%s", errMsg)
+		}
+		return "", fmt.Errorf("migration generation failed with code %d", result)
+	}
+
+	if errorOut == nil {
+		return "", fmt.Errorf("migration generation returned null")
 	}
 
 	output := C.GoString(errorOut)

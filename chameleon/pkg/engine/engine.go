@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -83,4 +84,18 @@ func (e *Engine) Close() {
 // IsConnected returns true if connected to a database
 func (e *Engine) IsConnected() bool {
 	return e.connector != nil && e.connector.IsConnected()
+}
+
+// GenerateMigration generates DDL SQL from the loaded schema
+func (e *Engine) GenerateMigration() (string, error) {
+	if e.schema == nil {
+		return "", fmt.Errorf("no schema loaded")
+	}
+
+	schemaJSON, err := json.Marshal(e.schema)
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize schema: %w", err)
+	}
+
+	return ffi.GenerateMigration(string(schemaJSON))
 }

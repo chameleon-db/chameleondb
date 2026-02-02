@@ -1,4 +1,4 @@
-use crate::ast::{Schema, RelationKind};
+use crate::ast::Schema;
 use crate::query::{
     Query, FilterExpr, FilterCondition, FilterValue,
     ComparisonOp, LogicalOp, SortDirection,

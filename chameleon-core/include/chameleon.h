@@ -78,4 +78,13 @@ enum ChameleonResult chameleon_generate_sql(const char *query_json,
                                             const char *schema_json,
                                             char **error_out);
 
+/**
+ * Generate migration SQL from a schema JSON
+ *
+ * Input:  schema_json - serialized Schema
+ * Output: returns the DDL SQL string directly
+ *         error_out   - error message on failure
+ */
+enum ChameleonResult chameleon_generate_migration(const char *schema_json, char **error_out);
+
 #endif  /* CHAMELEON_H */
