@@ -15,10 +15,12 @@ char* chameleon_parse_schema(const char* input, char** error_out);
 ChameleonResult chameleon_validate_schema(const char* schema_json, char** error_out);
 void chameleon_free_string(char* s);
 const char* chameleon_version(void);
+extern int chameleon_generate_sql(const char* query_json, const char* schema_json, char** error_out);
 */
 import "C"
 import (
 	"errors"
+	"fmt"
 	"unsafe"
 )
 
@@ -83,4 +85,36 @@ func ValidateSchema(schemaJSON string) error {
 func Version() string {
 	cVersion := C.chameleon_version()
 	return C.GoString(cVersion)
+}
+
+// GenerateSQL calls the Rust SQL generator
+// Takes query JSON and schema JSON, returns GeneratedSQL JSON
+func GenerateSQL(queryJSON string, schemaJSON string) (string, error) {
+	cQuery := C.CString(queryJSON)
+	defer C.free(unsafe.Pointer(cQuery))
+
+	cSchema := C.CString(schemaJSON)
+	defer C.free(unsafe.Pointer(cSchema))
+
+	var errorOut *C.char
+
+	result := C.chameleon_generate_sql(cQuery, cSchema, &errorOut)
+
+	if result != 0 {
+		if errorOut != nil {
+			errMsg := C.GoString(errorOut)
+			C.chameleon_free_string(errorOut)
+			return "", fmt.Errorf("%s", errMsg)
+		}
+		return "", fmt.Errorf("SQL generation failed with code %d", result)
+	}
+
+	// On success, error_out contains the result JSON
+	if errorOut == nil {
+		return "", fmt.Errorf("SQL generation returned null")
+	}
+
+	output := C.GoString(errorOut)
+	C.chameleon_free_string(errorOut)
+	return output, nil
 }

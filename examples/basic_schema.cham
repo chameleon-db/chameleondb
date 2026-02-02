@@ -21,20 +21,17 @@ entity Order {
     total: decimal,
     status: string,
     created_at: timestamp default now(),
-
+    user_id: uuid,
     // Relations
     user: User,
     items: [OrderItem] via order_id,
-
-    // Multi-backend
-    realtime_status: string @cache,
 }
 
 entity OrderItem {
     id: uuid primary,
     quantity: int,
     price: decimal,
-
+    order_id: uuid,
     // Relations
     order: Order,
 }

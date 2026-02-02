@@ -156,6 +156,71 @@ unsafe fn set_error(error_out: *mut *mut c_char, message: &str) {
     }
 }
 
+/// Generate SQL from a query JSON + schema JSON
+/// 
+/// Input:  query_json  - serialized Query
+///         schema_json - serialized Schema  
+/// Output: returns JSON-serialized GeneratedSQL
+///         error_out   - error message on failure
+#[no_mangle]
+pub unsafe extern "C" fn chameleon_generate_sql(
+    query_json: *const c_char,
+    schema_json: *const c_char,
+    error_out: *mut *mut c_char,
+) -> ChameleonResult {
+    if query_json.is_null() || schema_json.is_null() {
+        set_error(error_out, "Query or schema JSON is null");
+        return ChameleonResult::InternalError;
+    }
+
+    let query_str = match CStr::from_ptr(query_json).to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            set_error(error_out, &format!("Invalid query JSON UTF-8: {}", e));
+            return ChameleonResult::InternalError;
+        }
+    };
+
+    let schema_str = match CStr::from_ptr(schema_json).to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            set_error(error_out, &format!("Invalid schema JSON UTF-8: {}", e));
+            return ChameleonResult::InternalError;
+        }
+    };
+
+    let query: crate::query::Query = match serde_json::from_str(query_str) {
+        Ok(q) => q,
+        Err(e) => {
+            set_error(error_out, &format!("Query deserialization error: {}", e));
+            return ChameleonResult::InternalError;
+        }
+    };
+
+    let schema: Schema = match serde_json::from_str(schema_str) {
+        Ok(s) => s,
+        Err(e) => {
+            set_error(error_out, &format!("Schema deserialization error: {}", e));
+            return ChameleonResult::InternalError;
+        }
+    };
+
+    match crate::sql::generate_sql(&query, &schema) {
+        Ok(generated) => {
+            let json = serde_json::to_string(&generated).unwrap();
+            let c_str = CString::new(json).unwrap();
+            let ptr = c_str.into_raw();
+            // We need to return the pointer, reuse error_out as output channel
+            *error_out = ptr;
+            ChameleonResult::Ok
+        }
+        Err(e) => {
+            set_error(error_out, &format!("SQL generation error: {}", e));
+            return ChameleonResult::ValidationError;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

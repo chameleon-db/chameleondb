@@ -66,4 +66,16 @@ void chameleon_free_string(char *s);
  */
 const char *chameleon_version(void);
 
+/**
+ * Generate SQL from a query JSON + schema JSON
+ *
+ * Input:  query_json  - serialized Query
+ *         schema_json - serialized Schema
+ * Output: returns JSON-serialized GeneratedSQL
+ *         error_out   - error message on failure
+ */
+enum ChameleonResult chameleon_generate_sql(const char *query_json,
+                                            const char *schema_json,
+                                            char **error_out);
+
 #endif  /* CHAMELEON_H */

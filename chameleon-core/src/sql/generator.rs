@@ -4,11 +4,12 @@ use crate::query::{
     ComparisonOp, LogicalOp, SortDirection,
 };
 use super::naming::entity_to_table;
+use serde::{Deserialize, Serialize};
 
 /// Result of generating SQL for a query
 /// A single logical query can produce multiple SQL statements
 /// (main query + eager loading queries)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GeneratedSQL {
     /// The main SELECT query
     pub main_query: String,
