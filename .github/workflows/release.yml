@@ -7,20 +7,16 @@ on:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
+
     strategy:
       matrix:
         include:
           - os: ubuntu-22.04
             target: linux
-            ext: tar.gz
           - os: macos-12
             target: darwin
-            ext: tar.gz
-          - os: windows-2022
-            target: windows
-            ext: zip
 
     steps:
       - name: Checkout
@@ -39,8 +35,8 @@ jobs:
           cd chameleon-core
           cargo build --release
 
-      - name: Build Go CLI (Unix)
-        if: matrix.target != 'windows'
+      - name: Build Go CLI
+        shell: bash
         run: |
           cd chameleon
           export RUST_LIB_DIR="$PWD/../chameleon-core/target/release"
@@ -50,35 +46,19 @@ jobs:
           export CGO_CFLAGS="-I$RUST_INCLUDE_DIR"
           go build -o chameleon ./cmd/chameleon
 
-      - name: Build Go CLI (Windows)
-        if: matrix.target == 'windows'
-        shell: bash
-        run: |
-          cd chameleon
-          export RUST_LIB_DIR="$PWD/../chameleon-core/target/release"
-          export RUST_INCLUDE_DIR="$PWD/../chameleon-core/include"
-          export CGO_ENABLED=1
-          export CGO_LDFLAGS="-L$RUST_LIB_DIR -lchameleon_core"
-          export CGO_CFLAGS="-I$RUST_INCLUDE_DIR"
-          go build -o chameleon.exe ./cmd/chameleon
-
       - name: Package artifact
         shell: bash
         run: |
           mkdir -p dist
-          if [ "${{ matrix.target }}" = "windows" ]; then
-            cp chameleon/chameleon.exe dist/
-            cd dist && zip chameleon-windows-amd64.zip chameleon.exe
-          else
-            cp chameleon/chameleon dist/
-            cd dist && tar -czf chameleon-${{ matrix.target }}-amd64.tar.gz chameleon
-          fi
+          cp chameleon/chameleon dist/
+          cd dist
+          tar -czf chameleon-${{ matrix.target }}-amd64.tar.gz chameleon
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: chameleon-${{ matrix.target }}
-          path: dist/*
+          path: dist/*.tar.gz
 
   release:
     name: Create GitHub Release
