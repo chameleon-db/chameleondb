@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"time"
+	"strings"
 
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
 	"github.com/jackc/pgx/v5"
@@ -125,15 +126,51 @@ func init() {
 
 // readConfig reads database config from .chameleon file
 func readConfig() (engine.ConnectorConfig, error) {
-	// For now, return a config that works with Docker postgres
-	// TODO: Actually parse .chameleon file
-	return engine.ConnectorConfig{
+	// Try to read .chameleon file
+	data, err := os.ReadFile(".chameleon")
+	if err != nil {
+		return engine.ConnectorConfig{}, err
+	}
+
+	config := engine.ConnectorConfig{
 		Host:     "localhost",
 		Port:     5432,
-		Database: "hello_chameleon",
+		Database: "chameleon",
 		User:     "postgres",
-		Password: "postgres",
+		Password: "",
 		MaxConns: 5,
 		MinConns: 1,
-	}, nil
+	}
+
+	// Simple parsing (good enough for now)
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") || line == "" {
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.Trim(strings.TrimSpace(parts[1]), "\"")
+
+		switch key {
+		case "host":
+			config.Host = value
+		case "port":
+			fmt.Sscanf(value, "%d", &config.Port)
+		case "database":
+			config.Database = value
+		case "user":
+			config.User = value
+		case "password":
+			config.Password = value
+		}
+	}
+
+	return config, nil
 }
