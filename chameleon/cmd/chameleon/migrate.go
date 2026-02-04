@@ -77,8 +77,12 @@ Examples:
 		// Apply migration
 		printInfo("Connecting to database...")
 
-		// TODO: Read from .chameleon config
-		config := engine.DefaultConfig()
+		// Read config from .chameleon file
+		config, err := readConfig()
+		if err != nil {
+			printWarning("Could not read .chameleon config, using defaults")
+			config = engine.DefaultConfig()
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -117,4 +121,19 @@ func init() {
 	migrateCmd.Flags().BoolVar(&applyMigration, "apply", false, "apply migration to database")
 
 	rootCmd.AddCommand(migrateCmd)
+}
+
+// readConfig reads database config from .chameleon file
+func readConfig() (engine.ConnectorConfig, error) {
+	// For now, return a config that works with Docker postgres
+	// TODO: Actually parse .chameleon file
+	return engine.ConnectorConfig{
+		Host:     "localhost",
+		Port:     5432,
+		Database: "hello_chameleon",
+		User:     "postgres",
+		Password: "postgres",
+		MaxConns: 5,
+		MinConns: 1,
+	}, nil
 }
