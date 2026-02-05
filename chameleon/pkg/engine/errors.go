@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/chameleon-db/chameleondb/chameleon/internal/ffi"
 	"github.com/fatih/color"
 )
 
@@ -71,4 +72,21 @@ func formatParseError(detail ParseErrorDetail) string {
 	}
 
 	return b.String()
+}
+
+// LoadSchemaFromStringRaw loads schema and returns raw error (no formatting)
+func (e *Engine) LoadSchemaFromStringRaw(input string) (*Schema, string, error) {
+	schemaJSON, err := ffi.ParseSchema(input)
+	if err != nil {
+		// Return raw error message without formatting
+		return nil, err.Error(), err
+	}
+
+	var schema Schema
+	if err := json.Unmarshal([]byte(schemaJSON), &schema); err != nil {
+		return nil, "", fmt.Errorf("failed to deserialize schema: %w", err)
+	}
+
+	e.schema = &schema
+	return &schema, "", nil
 }
