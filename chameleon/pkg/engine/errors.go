@@ -18,16 +18,27 @@ type ParseErrorDetail struct {
 	Token      *string `json:"token"`
 }
 
+type ChameleonError struct {
+	Kind string           `json:"kind"`
+	Data ParseErrorDetail `json:"data"`
+}
+
 // FormatError tries to parse and format a detailed error
 func FormatError(errMsg string) string {
-	// Try to parse as structured error
-	var detail ParseErrorDetail
-	if err := json.Unmarshal([]byte(errMsg), &detail); err == nil {
-		return formatParseError(detail)
+	var chErr ChameleonError
+	if err := json.Unmarshal([]byte(errMsg), &chErr); err != nil {
+		// Not JSON structure -> fallback
+		return errMsg
 	}
 
-	// Fallback to plain error message
-	return errMsg
+	switch chErr.Kind {
+	case "ParseError":
+		return formatParseError(chErr.Data)
+
+	default:
+		// Others -> fallback
+		return errMsg
+	}
 }
 
 func formatParseError(detail ParseErrorDetail) string {
@@ -55,7 +66,8 @@ func formatParseError(detail ParseErrorDetail) string {
 		b.WriteString("\n")
 		helpColor := color.New(color.FgYellow, color.Bold)
 		helpColor.Fprintf(&b, "  Help: ")
-		fmt.Fprintf(&b, "%s\n", *detail.Suggestion)
+		fmt.Fprintf(&b, "%s\n", strings.ReplaceAll(*detail.Suggestion, "\n", "\n  "))
+
 	}
 
 	return b.String()

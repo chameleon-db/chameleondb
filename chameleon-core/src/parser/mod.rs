@@ -51,15 +51,28 @@ fn extract_snippet(source: &str, line: usize, column: usize) -> String {
     let target_line = lines[line - 1];
     let mut snippet = String::new();
     
+    // Line number with proper padding
+    let line_num_width = format!("{}", line).len().max(3);
+    
     // Show the line with the error
-    snippet.push_str(&format!("{:4} │ {}\n", line, target_line));
+    snippet.push_str(&format!("{:>width$} │ {}\n", line, target_line, width = line_num_width));
     
     // Show the error pointer
-    snippet.push_str("     │ ");
+    snippet.push_str(&format!("{:>width$} │ ", "", width = line_num_width));
     for _ in 0..(column - 1) {
         snippet.push(' ');
     }
-    snippet.push_str("^");
+    
+    // Calculate how many characters to underline
+    let token_len = target_line[column - 1..]
+        .chars()
+        .take_while(|c| !c.is_whitespace() && *c != ',' && *c != '{' && *c != '}')
+        .count()
+        .max(1);
+    
+    for _ in 0..token_len {
+        snippet.push('^');
+    }
     
     snippet
 }
@@ -95,33 +108,59 @@ fn enhance_parse_error(
 fn add_suggestions(mut detail: ParseErrorDetail) -> ParseErrorDetail {
     // Check for common typos in keywords
     if let Some(token) = &detail.token {
-        let token_lower: String = token.to_lowercase();
+        let token_clean = token.replace("Token(", "").replace(")", "").replace("\"", "");
+        let token_lower = token_clean.to_lowercase();
         
-        if token_lower.contains("entiy") || token_lower.contains("enity") {
+        // Typos in 'entity'
+        if token_lower.contains("entiy") 
+            || token_lower.contains("enity")
+            || token_lower.contains("entit")
+            || token_lower == "entiy" {
             detail.suggestion = Some("Did you mean 'entity'?".to_string());
-        } else if token_lower.contains("primry") || token_lower.contains("pirmary") {
+        }
+        // Typos in 'primary'
+        else if token_lower.contains("primry") 
+            || token_lower.contains("pirmary")
+            || token_lower.contains("primari") {
             detail.suggestion = Some("Did you mean 'primary'?".to_string());
-        } else if token_lower.contains("uniqu") && !token_lower.contains("unique") {
+        }
+        // Typos in 'unique'
+        else if token_lower.contains("uniqu") && !token_lower.contains("unique") {
             detail.suggestion = Some("Did you mean 'unique'?".to_string());
-        } else if token_lower.contains("nullabe") {
+        }
+        // Typos in 'nullable'
+        else if token_lower.contains("nullabe") || token_lower.contains("nulable") {
             detail.suggestion = Some("Did you mean 'nullable'?".to_string());
         }
     }
     
-    // Check for common syntax mistakes
-    if detail.message.contains("expected one of") {
-        if detail.message.contains("\":\"") || detail.message.contains("Colon") {
-            if detail.suggestion.is_none() {
-                detail.suggestion = Some(
-                    "Fields must have a type after the colon.\nExample: name: string".to_string()
-                );
-            }
-        } else if detail.message.contains("\"{\"") {
-            if detail.suggestion.is_none() {
-                detail.suggestion = Some(
-                    "Entity definitions must have an opening brace.\nExample: entity User {".to_string()
-                );
-            }
+    // Check for common syntax mistakes based on message
+    if detail.message.contains("expected one of") && detail.message.contains("\":\"") {
+        if detail.suggestion.is_none() {
+            detail.suggestion = Some(
+                "Fields must have a type after the colon.\nExample: name: string".to_string()
+            );
+        }
+    } 
+    else if detail.message.contains("expected one of") && detail.message.contains("\"{\"") {
+        if detail.suggestion.is_none() {
+            detail.suggestion = Some(
+                "Entity definitions must have an opening brace.\nExample: entity User {".to_string()
+            );
+        }
+    }
+    else if detail.message.contains("expected one of") && detail.message.contains("\"}\"") {
+        if detail.suggestion.is_none() {
+            detail.suggestion = Some(
+                "Missing closing brace. Check that all entities are properly closed.".to_string()
+            );
+        }
+    }
+    else if detail.message.contains("Unexpected end of file") {
+        if detail.suggestion.is_none() {
+            detail.suggestion = Some(
+                "The file ended unexpectedly. You may be missing a closing brace }".to_string()
+            );
         }
     }
     

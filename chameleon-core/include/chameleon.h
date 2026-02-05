@@ -46,7 +46,7 @@ char *chameleon_parse_schema(const char *input, char **error_out);
  * - `schema_json` must be a valid null-terminated C string containing JSON
  * - Returns ChameleonResult::Ok on success
  */
-enum ChameleonResult chameleon_validate_schema(const char *schema_json, char **error_out);
+enum ChameleonResult chameleon_validate_schema(const char *input, char **error_out);
 
 /**
  * Free a string allocated by Rust

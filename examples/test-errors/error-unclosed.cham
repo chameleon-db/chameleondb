@@ -1,0 +1,7 @@
+entity User {
+    id: uuid primary,
+    name: string,
+
+entity Post {
+    id: uuid primary,
+}

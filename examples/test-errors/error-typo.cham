@@ -1,0 +1,3 @@
+entiy User {
+    id: uuid primary,
+}

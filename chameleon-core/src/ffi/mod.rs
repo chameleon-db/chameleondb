@@ -4,6 +4,7 @@ use std::ptr;
 
 use crate::parser::parse_schema;
 use crate::ast::Schema;
+use crate::ChameleonError;
 
 /// Result code for FFI functions
 #[repr(C)]
@@ -58,9 +59,15 @@ pub unsafe extern "C" fn chameleon_parse_schema(
     let schema = match parse_schema(input_str) {
         Ok(s) => s,
         Err(e) => {
-            set_error(error_out, &format!("Parse error: {}", e));
-            return ptr::null_mut();
-        }
+            let json = serde_json::to_string(&e)
+                .unwrap_or_else(|_| {
+                    r#"{"kind":"InternalError","data":{"message":"Failed to serialize error"}}"#.to_string()
+                });
+
+        set_error(error_out, &json);
+        return ptr::null_mut();
+}
+
     };
 
     // Serialize to JSON
@@ -89,15 +96,15 @@ pub unsafe extern "C" fn chameleon_parse_schema(
 /// - Returns ChameleonResult::Ok on success
 #[no_mangle]
 pub unsafe extern "C" fn chameleon_validate_schema(
-    schema_json: *const c_char,
+    input: *const c_char,
     error_out: *mut *mut c_char,
 ) -> ChameleonResult {
-    if schema_json.is_null() {
-        set_error(error_out, "Schema JSON is null");
+    if input.is_null() {
+        set_error(error_out, "Input is null");
         return ChameleonResult::InternalError;
     }
 
-    let json_str = match CStr::from_ptr(schema_json).to_str() {
+    let c_str = match CStr::from_ptr(input).to_str() {
         Ok(s) => s,
         Err(e) => {
             set_error(error_out, &format!("Invalid UTF-8: {}", e));
@@ -105,23 +112,40 @@ pub unsafe extern "C" fn chameleon_validate_schema(
         }
     };
 
-    let schema: Schema = match serde_json::from_str(json_str) {
-        Ok(s) => s,
-        Err(e) => {
-            set_error(error_out, &format!("JSON deserialization error: {}", e));
-            return ChameleonResult::InternalError;
+    match crate::parser::parse_schema(c_str) {
+        Ok(schema) => {
+            // Type check the schema
+            let result = crate::typechecker::type_check(&schema);
+            
+            if result.errors.is_empty() {
+                ChameleonResult::Ok
+            } else {
+                // Format validation errors
+                let mut error_msg = String::from("validation error: ❌ Found ");
+                error_msg.push_str(&format!("{} error(s):\n\n", result.errors.len()));
+                
+                for (i, err) in result.errors.iter().enumerate() {
+                    error_msg.push_str(&format!("  {}. {}\n", i + 1, err));
+                }
+                
+                set_error(error_out, &error_msg);
+                ChameleonResult::ValidationError
+            }
         }
-    };
-
-    // Use the real type checker
-    let result = crate::typechecker::type_check(&schema);
-    
-    if !result.is_valid() {
-        set_error(error_out, &result.error_report());
-        return ChameleonResult::ValidationError;
+        Err(e) => {
+            // Serialize structured error if it's a ParseError
+            let error_msg = match &e {
+                ChameleonError::ParseError(detail) => {
+                    // Return as JSON for structured handling
+                    serde_json::to_string(detail).unwrap_or_else(|_| e.to_string())
+                }
+                _ => format!("parse error: {}", e),
+            };
+            
+            set_error(error_out, &error_msg);
+            ChameleonResult::ParseError
+        }
     }
-
-    ChameleonResult::Ok
 }
 
 /// Free a string allocated by Rust

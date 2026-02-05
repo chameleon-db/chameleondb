@@ -22,36 +22,30 @@ func NewEngine() *Engine {
 }
 
 // LoadSchemaFromString parses a schema from a string
-func (e *Engine) LoadSchemaFromString(schemaSource string) (*Schema, error) {
-	// Parse via Rust FFI
-	jsonStr, err := ffi.ParseSchema(schemaSource)
+func (e *Engine) LoadSchemaFromString(input string) (*Schema, error) {
+	schemaJSON, err := ffi.ParseSchema(input)
 	if err != nil {
-		return nil, fmt.Errorf("parse error: %w", err)
+		// Check if it's a structured parse error (JSON)
+		formattedErr := FormatError(err.Error())
+		return nil, fmt.Errorf("%s", formattedErr)
 	}
 
-	// Validate
-	if err := ffi.ValidateSchema(jsonStr); err != nil {
-		return nil, fmt.Errorf("validation error: %w", err)
+	var schema Schema
+	if err := json.Unmarshal([]byte(schemaJSON), &schema); err != nil {
+		return nil, fmt.Errorf("failed to deserialize schema: %w", err)
 	}
 
-	// Deserialize to Go struct
-	schema, err := ParseSchemaJSON(jsonStr)
-	if err != nil {
-		return nil, fmt.Errorf("json error: %w", err)
-	}
-
-	e.schema = schema
-	return schema, nil
+	e.schema = &schema
+	return &schema, nil
 }
 
 // LoadSchemaFromFile loads a schema from a .cham file
 func (e *Engine) LoadSchemaFromFile(filepath string) (*Schema, error) {
-	data, err := os.ReadFile(filepath)
+	content, err := os.ReadFile(filepath)
 	if err != nil {
-		return nil, fmt.Errorf("read file error: %w", err)
+		return nil, fmt.Errorf("failed to read schema file: %w", err)
 	}
-
-	return e.LoadSchemaFromString(string(data))
+	return e.LoadSchemaFromString(string(content))
 }
 
 // GetSchema returns the currently loaded schema

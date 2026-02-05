@@ -47,28 +47,37 @@ impl ParseErrorDetail {
 }
 
 /// Main error type for ChameleonDB
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "data")]
 pub enum ChameleonError {
     /// Parse error with detailed position information
     ParseError(ParseErrorDetail),
     /// Validation error (type checking, etc)
-    ValidationError(String),
+    ValidationError { message: String },
     /// Internal error (should not happen in normal use)
-    InternalError(String),
+    InternalError { message: String },
 }
 
 impl fmt::Display for ChameleonError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ChameleonError::ParseError(detail) => {
-                write!(f, "Parse error at line {}, column {}: {}", 
-                    detail.line, detail.column, detail.message)
+                write!(
+                    f,
+                    "Parse error at line {}, column {}: {}",
+                    detail.line, detail.column, detail.message
+                )
             }
-            ChameleonError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
-            ChameleonError::InternalError(msg) => write!(f, "Internal error: {}", msg),
+            ChameleonError::ValidationError { message } => {
+                write!(f, "Validation error: {}", message)
+            }
+            ChameleonError::InternalError { message } => {
+                write!(f, "Internal error: {}", message)
+            }
         }
     }
 }
+
 
 impl std::error::Error for ChameleonError {}
 
@@ -125,7 +134,10 @@ impl From<lalrpop_util::ParseError<usize, lalrpop_util::lexer::Token<'_>, &str>>
                 )
             }
             ParseError::User { error } => {
-                ChameleonError::InternalError(error.to_string())
+                ChameleonError::InternalError {
+                    message: error.to_string(),
+                }
+
             }
         }
     }
