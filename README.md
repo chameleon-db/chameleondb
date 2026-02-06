@@ -1,67 +1,88 @@
 <div align="center">
 
-![CharmeleonDB](docs/logo-200x150.png)
+![ChameleonDB](docs/logo-200x150.png)
 
-
-*A modern, type-safe, graph-oriented database access language*
+*Type-safe, graph-oriented database access without the magic*
 
 [![License: Apache](https://img.shields.io/badge/license-Apache%20License%202.0-blue)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![Go Version](https://img.shields.io/badge/go-1.21%2B-00ADD8.svg)](https://golang.org)
+[![Status](https://img.shields.io/badge/status-alpha-yellow)](https://github.com/chameleon-db/chameleondb)
 
-[Documentation](https://www.chameleon-web.vervel.app/docs) • [Examples](./examples) • [Contributing](./CONTRIBUTING.md) • [Roadmap](#roadmap)
+[Documentation](https://chameleondb.dev/docs) • [Examples](https://github.com/chameleon-db/chameleon-examples) • [Discord](https://chameleondb.dev/discord)
 
 </div>
 
 ---
 
+## ⚠️ Early Development Notice
+
+ChameleonDB is in **active development** (v0.1 alpha). The API is not stable yet. 
+For production use, wait for v1.0 (Q3 2026).
+
+**Early adopters welcome** — your feedback shapes the product.
+
+---
+
 ## Overview
 
-ChameleonDB replaces the "tables and JOINs" mindset with **relationship navigation in a typed object graph**, providing compile-time validation and modern syntax.
+ChameleonDB is a **graph-oriented, strongly-typed database access layer** that brings compile-time safety to database queries.
 
-Instead of thinking in terms of relational tables, developers navigate an intuitive graph of strongly-typed entities with verified relationships.
+Instead of writing SQL or dealing with ORM magic, you define a schema once and navigate relationships naturally.
 
 ### The Problem
 
-Traditional database access comes with fundamental challenges:
+Traditional database access has friction:
 
-- **SQL** forces you to think in flat tables and manual JOINs
-- **ORMs** have leaky abstractions with runtime errors
-- **Type-safety** is missing at compile-time for queries
+- **SQL** requires manual JOINs and is error-prone
+- **ORMs** hide behavior and have runtime errors
+- **Type-safety** is missing at the query level
 - **N+1 queries** are easy to introduce accidentally
 
-### The chameleonDB Solution
+### The ChameleonDB Solution
 
-```rust
-// Define your schema once
+**1. Define your schema** (or import from existing database)
+```chameleon
 entity User {
     id: uuid primary,
     email: string unique,
-    age: int,
-    orders: [Order] via user_id,
+    posts: [Post] via author_id,
 }
 
-entity Order {
+entity Post {
     id: uuid primary,
-    total: decimal,
-    user: User,
+    title: string,
+    published: bool,
+    author_id: uuid,
+    author: User,
 }
+```
 
-// Write type-safe queries
-db.users()
-    .filter(|u| u.email == "ana@mail.com")
-    .filter(|u| u.orders.any(|o| o.total > 100))
-    .include(|u| u.orders)
-    .execute()
-    .await
+**2. Write natural queries**
+```go
+// Get user with all their posts
+user := db.Query("User").
+    Filter("email", "eq", "ana@mail.com").
+    Include("posts").
+    Execute(ctx)
+```
+
+**3. See exactly what runs**
+```sql
+-- Main query
+SELECT id, email FROM users WHERE email = 'ana@mail.com';
+
+-- Eager load (no N+1)
+SELECT id, title FROM posts WHERE author_id IN ('...');
 ```
 
 **What you get:**
-- ✅ **Compile-time type safety** - Catch errors before runtime
-- ✅ **Graph navigation** - No manual JOINs required
-- ✅ **Predictable behavior** - No magic, explicit control
-- ✅ **High performance** - Rust core with optimized execution
-- ✅ **Simple deployment** - Single binary, no runtime dependencies
+
+✅ **Compile-time schema validation** — Catch errors before runtime  
+✅ **Graph navigation** — No manual JOINs required  
+✅ **Full SQL transparency** — See generated queries  
+✅ **Zero magic** — Predictable, explicit behavior  
+✅ **Native performance** — Rust core, minimal overhead
 
 ---
 
@@ -69,94 +90,85 @@ db.users()
 
 ### Prerequisites
 
-- Rust 1.75+
 - Go 1.21+
-- PostgreSQL 14+ (v1.0 backend)
+- PostgreSQL 14+
 
 ### Installation
-
 ```bash
-# Clone the repository
+# Install ChameleonDB CLI
+curl -sSL https://chameleondb.dev/install.sh | sh
+
+# Or build from source
 git clone https://github.com/chameleon-db/chameleondb.git
-cd chameleondb
-
-# Build Rust core
-cd chameleon-core
-cargo build --release
-
-# Build Go runtime
-cd ../chameleon
-go build -o chameleon cmd/chameleon/main.go
-
-# Run your first query
-./chameleon --schema examples/blog.cham --query examples/queries/users.cham
+cd chameleondb/chameleon
+make build
 ```
 
-### Your First Schema
+### Your First Project
+```bash
+# Create new project
+chameleon init my-blog
+cd my-blog
 
-Create `blog.cham`:
+# Validate schema
+chameleon validate
 
-```rust
-entity User {
-    id: uuid primary,
-    username: string unique,
-    email: string unique,
-    created_at: timestamp default now(),
-    posts: [Post] via author_id,
-}
+# Generate migration
+chameleon migrate --dry-run
 
-entity Post {
-    id: uuid primary,
-    title: string,
-    content: string,
-    published: bool default false,
-    author: User,
-    created_at: timestamp default now(),
-}
+# Apply to database
+chameleon migrate --apply
+
+# Insert sample data
+psql my_blog < seed.sql
 ```
 
 ### Your First Query
-
-From Rust:
-
-```rust
-use chameleon::prelude::*;
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    let db = chameleonDB::connect("postgresql://localhost/mydb").await?;
-    
-    let users = db.users()
-        .filter(|u| u.posts.any(|p| p.published == true))
-        .include(|u| u.posts)
-        .execute()
-        .await?;
-    
-    for user in users {
-        println!("{}: {} posts", user.username, user.posts.len());
-    }
-    
-    Ok(())
-}
-```
-
-From Go:
-
 ```go
 package main
 
-import "github.com/chameleon-db/chameleondb/pkg/engine"
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/chameleon-db/chameleondb/pkg/engine"
+)
 
 func main() {
-    db := engine.Connect("postgresql://localhost/mydb")
+    // Connect to database
+    eng := engine.NewEngine()
+    eng.LoadSchemaFromFile("schema.cham")
     
-    users := db.Users().
-        Filter(User.Posts.Any(Post.Published.Eq(true))).
+    ctx := context.Background()
+    config := engine.ConnectorConfig{
+        Host:     "localhost",
+        Port:     5432,
+        Database: "my_blog",
+        User:     "postgres",
+        Password: "postgres",
+    }
+    
+    eng.Connect(ctx, config)
+    defer eng.Close()
+    
+    // Query with eager loading
+    result, err := eng.Query("User").
+        Filter("email", "eq", "ana@mail.com").
         Include("posts").
-        Execute()
+        Execute(ctx)
     
-    for _, user := range users {
-        fmt.Printf("%s: %d posts\n", user.Username, len(user.Posts))
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Access results
+    for _, user := range result.Rows {
+        fmt.Printf("User: %s\n", user.String("email"))
+        
+        if posts, ok := result.Relations["posts"]; ok {
+            fmt.Printf("  Posts: %d\n", len(posts))
+        }
     }
 }
 ```
@@ -165,216 +177,159 @@ func main() {
 
 ## Architecture
 
-chameleonDB uses a **hybrid Rust + Go architecture** for optimal performance and developer experience:
-
+ChameleonDB uses a **hybrid Rust + Go architecture**:
 ```
-┌─────────────────────────────────────┐
-│  Rust Core (libchameleon.so)        │
-│  - Parser (LALRPOP)                 │
-│  - Type checker                     │
-│  - Query optimizer                  │
-│  - Schema validator                 │
-└──────────────┬──────────────────────┘
+┌─────────────────────────────────┐
+│  Rust Core (libchameleon.so)    │
+│  - Parser (LALRPOP)             │
+│  - Type checker                 │
+│  - SQL generator                │
+└──────────────┬──────────────────┘
                ↕ FFI (C ABI)
-┌──────────────▼──────────────────────┐
-│  Go Runtime (chameleon binary)      │
-│  - Query executor                   │
-│  - Connection pooling (pgx)         │
-│  - HTTP API (optional)              │
-│  - CLI tool                         │
-└─────────────────────────────────────┘
+┌──────────────▼──────────────────┐
+│  Go Runtime                     │
+│  - Query executor               │
+│  - Connection pooling (pgx)     │
+│  - CLI tool                     │
+└─────────────────────────────────┘
 ```
 
-### Why This Architecture?
+**Why this architecture?**
 
-- **Rust Core**: Extreme type-safety, zero-cost abstractions, superior parser performance
-- **Go Runtime**: Simple deployment, excellent concurrency, robust tooling
-- **FFI Bridge**: ~100ns overhead, negligible for database operations
-- **Future-proof**: Easy to add bindings for Node, Python, Java, etc.
-
----
-
-## Core Principles
-
-### 1. Model First
-The schema is the single source of truth. Everything else derives from it.
-
-### 2. Compile-Time Safety
-Errors are caught before execution. No runtime surprises.
-
-### 3. Graph Navigation
-Navigate relationships naturally. No manual JOIN writing.
-
-### 4. Explicit Over Implicit
-No magic. Predictable, deterministic behavior.
-
-### 5. Runtime Enforcer
-Rule-based optimization (v1.0). ML-based in future versions.
+- **Rust core**: Type-safety, zero-cost abstractions, fast parsing
+- **Go runtime**: Simple deployment, great concurrency, familiar tooling
+- **FFI overhead**: ~100ns per call (negligible)
+- **Future-proof**: Easy to add Node, Python, Java bindings
 
 ---
 
 ## Features
 
-### Current (v0.1 - MVP)
+### ✅ Available Now (v0.1)
 
-- [x] Schema parser with LALRPOP
-- [x] AST representation
-- [x] Basic type checking
-- [x] PostgreSQL backend
-- [x] Simple query builder
-- [x] FFI bridge (Rust ↔ Go)
+- [x] Schema parser and validator
+- [x] Rich error messages with suggestions
+- [x] PostgreSQL migration generator
+- [x] Query builder with filters
+- [x] Eager loading (Include)
+- [x] Nested includes
+- [x] Relation filtering (automatic JOINs)
+- [x] CLI tools (init, validate, migrate, check)
+- [x] 60+ integration tests
 
-### Planned (v0.2 - Type-safe Queries)
+### 🚧 Coming This Month
 
-- [ ] Code generation from schema
-- [ ] Full compile-time validation
-- [ ] Eager loading with `.include()`
-- [ ] Query result typing
+- [ ] Database introspection (`chameleon introspect`)
+- [ ] VSCode extension (syntax highlighting, diagnostics)
+- [ ] Connection string support (`DATABASE_URL`)
+- [ ] Debug mode (show SQL before execution)
+- [ ] Performance benchmarks vs Prisma/GORM
 
-### Planned (v0.3 - Production Ready)
+### 🔮 Planned (v0.2)
 
-- [ ] Automatic migrations
-- [ ] Robust error handling
-- [ ] Complete test framework
-- [ ] Performance benchmarks
-
-### Planned (v1.0 - Stable Release)
-
-- [ ] Complete documentation
-- [ ] Stable Go bindings
-- [ ] Mature PostgreSQL backend
-- [ ] Production case studies
-
-### Future (v2.0+)
-
-- [ ] ML-based query optimization
-- [ ] Multi-backend support (MySQL, SQLite)
-- [ ] Adaptive indexing
-- [ ] Additional language bindings (Node, Java, Python)
-
----
-
-## Non-Goals (v1.0)
-
-chameleonDB is **intentionally scoped** to do a few things exceptionally well:
-
-- ❌ **NOT a complete SQL replacement** - Use SQL for complex analytics
-- ❌ **NOT a universal ORM** - Focused on relational databases
-- ❌ **NOT an auto-optimizer** - Explicit control over queries
-- ❌ **NOT hiding database behavior** - Transparent operations
-- ❌ **NOT using ML for optimization** - That's v2.0+
+- [ ] Code generation (type-safe DTOs)
+- [ ] Redis backend (@cache annotation)
+- [ ] Migration from Prisma/TypeORM
+- [ ] Multi-language support (TypeScript, Python)
+- [ ] Query explain and optimization hints
 
 ---
 
 ## Project Structure
-
 ```
-chameleon/
+chameleondb/
 ├── chameleon-core/          # Rust core library
 │   ├── src/
-│   │   ├── ast/             # Abstract syntax tree
+│   │   ├── ast/             # Schema structures
 │   │   ├── parser/          # LALRPOP grammar
-│   │   ├── typechecker/     # Type validation
-│   │   ├── optimizer/       # Query optimization
-│   │   └── ffi/             # Foreign function interface
-│   ├── Cargo.toml
-│   └── build.rs
+│   │   ├── typechecker/     # Validation
+│   │   ├── query/           # Query AST
+│   │   ├── sql/             # SQL generation
+│   │   ├── migration/       # DDL generation
+│   │   └── ffi/             # C ABI bridge
+│   └── Cargo.toml
 │
 ├── chameleon/               # Go runtime
 │   ├── cmd/chameleon/       # CLI tool
 │   ├── pkg/
-│   │   ├── engine/          # CGO wrapper
-│   │   ├── runtime/         # Query executor
-│   │   ├── backend/         # Database drivers
-│   │   └── server/          # HTTP API (optional)
+│   │   └── engine/          # Query executor
 │   └── go.mod
 │
 ├── docs/                    # Documentation
 │   ├── architecture.md
-│   ├── specification.md
-│   ├── manifesto.md
-│   └── tutorials/
+│   ├── what_is_chameleondb.md
+│   └── query-reference.md
 │
-├── examples/                # Example schemas and queries
-│   ├── blog/
-│   ├── ecommerce/
-│   └── analytics/
-│
-├── tests/                   # Integration tests
-│   ├── fixtures/
-│   └── scenarios/
-│
-├── LICENSE
-├── README.md
-├── CONTRIBUTING.md
-└── CODE_OF_CONDUCT.md
+└── examples/                # Separate repo
+    ├── 01-hello-world/
+    ├── 02-blog/
+    └── tutorial/
 ```
 
 ---
 
 ## Roadmap
 
-### Phase 1: Foundation (Q1 2026) - **TESTING**
-- ✅ Project setup
-- ✅ Schema parser
-- ✅ Basic type checker
-- ✅ FFI bridge
-- ✅ PostgreSQL connector
+### Q1 2026 (Current) - MVP v0.1
 
-### Phase 2: Type Safety (Q2 2026)
-- Code generation
-- Compile-time validation
-- Relationship navigation
-- Include/eager loading
+✅ Schema parser & type checker  
+✅ PostgreSQL backend  
+✅ Query builder & SQL generation  
+✅ CLI tools  
+🚧 VSCode extension  
+🚧 Database introspection  
 
-### Phase 3: Production Ready (Q3 2026)
-- Migrations
-- Error handling
-- Testing framework
-- Documentation
+**Goal:** Production-ready for simple use cases
 
-### Phase 4: Stable v1.0 (Q4 2026)
+### Q2 2026 - v0.2
+
+- Code generation (DTOs)
+- Redis backend
+- Migration tools
+- Multi-language support
+
+**Goal:** Feature parity with major ORMs
+
+### Q3-Q4 2026 - v1.0 Stable
+
 - Performance optimization
 - Production hardening
+- Complete documentation
 - Case studies
-- Community building
 
-### Phase 5: Advanced Features (2027+)
-- ML-based optimization
-- Multi-backend support
-- Additional language bindings
-- Enterprise features
+**Goal:** Enterprise-ready
+
+### 2027+ - v2.0
+
+- Additional backends (MySQL, DuckDB)
+- ML-based query optimization
+- Advanced features
 
 ---
 
 ## Contributing
 
-We welcome contributions! chameleonDB is in early stages and there's plenty to do.
+We welcome contributions! ChameleonDB is in early stages and there's plenty to do.
 
 ### How to Contribute
 
 1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+2. **Create** a feature branch (`git checkout -b feature/amazing`)
 3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
-4. **Push** to the branch (`git push origin feature/amazing-feature`)
+4. **Push** to the branch (`git push origin feature/amazing`)
 5. **Open** a Pull Request
 
 ### Development Setup
-
 ```bash
-# Clone your fork
-git clone https://github.com/chameleon-db/chameleondb.git
-cd chameleondb
-
-# Set up Rust environment
+# Build Rust core
 cd chameleon-core
-cargo build
+cargo build --release
 cargo test
 
-# Set up Go environment
+# Build Go runtime
 cd ../chameleon
-go mod download
-go test ./...
+make build
+make test
 
 # Run integration tests
 make test-integration
@@ -382,84 +337,77 @@ make test-integration
 
 ### Areas We Need Help
 
-- 🦀 **Rust**: Parser improvements, type checker, optimizer
-- 🐹 **Go**: Runtime improvements, connection pooling, testing
-- 📝 **Documentation**: Tutorials, guides, API docs
-- 🧪 **Testing**: Unit tests, integration tests, benchmarks
-- 🎨 **Design**: Logo, website, examples
-- 🌍 **Community**: Advocacy, feedback, issue triage
+- 🦀 **Rust**: Parser improvements, query optimizer
+- 🐹 **Go**: Runtime improvements, testing
+- 📚 **Documentation**: Tutorials, API docs
+- 🧪 **Testing**: Unit tests, integration tests
+- 🎨 **Design**: VSCode extension, tooling
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guidelines.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
 
 ---
 
 ## Community
 
 - **GitHub Discussions**: [Ask questions, share ideas](https://github.com/chameleon-db/chameleondb/discussions)
-- **Discord**: [Join our server](https://discord.gg/tyZNY2xmr)
-- **Twitter**: [@chameleonDB](https://twitter.com/chameleondb)
+- **Discord**: [Join our server](https://chameleondb.dev/discord)
+- **Twitter**: [@chameleondb](https://twitter.com/chameleondb)
+
+---
+
+## Why ChameleonDB?
+
+### vs Raw SQL
+
+❌ Manual JOINs  
+❌ No type safety  
+❌ Easy to make mistakes  
+
+✅ Graph navigation  
+✅ Compile-time validation  
+✅ Clear, maintainable code  
+
+### vs Traditional ORMs
+
+❌ Runtime errors  
+❌ Magic behavior  
+❌ Poor visibility into SQL  
+
+✅ Compile-time errors  
+✅ Explicit, predictable  
+✅ Full SQL transparency  
 
 ---
 
 ## Performance
 
-chameleonDB is designed for performance from the ground up:
+Early benchmarks (v0.1):
 
-- **Rust core**: Zero-cost abstractions, no garbage collection
-- **Optimized parser**: LALRPOP generates efficient code
-- **Connection pooling**: pgx provides optimal PostgreSQL performance
-- **Query optimization**: Compile-time and runtime optimizations
+- **Schema parsing**: < 1ms for typical schemas
+- **Type checking**: < 5ms for complex queries
+- **FFI overhead**: ~100ns per call
+- **Query execution**: On par with hand-written SQL
 
-Benchmarks coming in v0.2. Early tests show:
-- Schema parsing: < 1ms for typical schemas
-- Type checking: < 5ms for complex queries
-- FFI overhead: ~100ns per call
-- Query execution: Comparable to hand-written SQL
-
----
-
-## Comparison
-
-| Feature | chameleonDB | SQL | Prisma | GORM | SQLAlchemy |
-|---------|--------------|-----|--------|------|------------|
-| Type Safety | Compile-time | None | Runtime | Runtime | Runtime |
-| Graph Navigation | ✅ Native | ❌ Manual JOINs | ✅ Relations | ⚠️ Preload | ⚠️ Eager load |
-| Performance | High (Rust) | Highest | Medium | Medium | Medium |
-| Learning Curve | Low | High | Low | Low | Medium |
-| Schema First | ✅ Required | ⚠️ Optional | ✅ Required | ❌ Code-first | ⚠️ Hybrid |
-| Multi-language | 🔄 Planned | ✅ Universal | ❌ TypeScript | ❌ Go | ❌ Python |
+Full benchmarks vs Prisma/GORM coming in v0.2.
 
 ---
 
 ## License
 
-chameleonDB is licensed under the **APACHE 2.0 License** - see the [LICENSE](LICENSE) file for details.
+ChameleonDB is licensed under the **Apache 2.0** - see the [LICENSE](LICENSE) file for details.
 
 ---
 
 ## Acknowledgments
 
-chameleonDB is inspired by:
+Inspired by:
 
-- **Prisma** - Schema-first approach and developer experience
-- **GraphQL** - Graph-based data querying
-- **Rust** - Type safety and zero-cost abstractions
-- **LINQ** - Composable query syntax
-- **EdgeDB** - Rethinking database access
+- **Prisma** — Schema-first approach
+- **GraphQL** — Graph-based querying
+- **Rust** — Type safety and performance
+- **EdgeDB** — Rethinking database access
 
-Special thanks to all [contributors](https://github.com/chameleon-db/chameleon/graphs/contributors)!
-
----
-
-## Support
-
-If you find chameleonDB useful, please consider:
-
-- ⭐ **Star** this repository
-- 🐦 **Share** on social media
-- 📝 **Write** a blog post or tutorial
-- 💬 **Join** our community discussions
-- 🤝 **Contribute** code or documentation
+Special thanks to all [contributors](https://github.com/chameleon-db/chameleondb/graphs/contributors)!
 
 ---
 
@@ -467,6 +415,6 @@ If you find chameleonDB useful, please consider:
 
 **Built with ❤️ by developers, for developers**
 
-[Website](https://chameleondb-web.vercel.app) • [Documentation](https://chameleondb-web.vercel.app/docs) • [GitHub](https://github.com/chameleon-db/chameleon)
+[Website](https://chameleondb.dev) • [Documentation](https://chameleondb.dev/docs) • [Examples](https://github.com/chameleon-db/chameleon-examples)
 
 </div>
