@@ -9,28 +9,11 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            goos: linux
-            goarch: amd64
-            ext: ""
-            archive: tar.gz
-
-          - os: windows-latest
-            goos: windows
-            goarch: amd64
-            ext: ".exe"
-            archive: zip
-
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Rust
@@ -38,37 +21,45 @@ jobs:
 
       - name: Build Rust core
         working-directory: chameleon-core
-        run: cargo build --release
+        run: |
+          cargo build --release
+          # Copy library to known location
+          mkdir -p ../chameleon/lib
+          cp target/release/libchameleon_core.so ../chameleon/lib/
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: "1.22"
 
-      - name: Build CLI
+      - name: Build Go CLI
         working-directory: chameleon
         env:
-          CGO_ENABLED: 1
+          CGO_ENABLED: "1"
+          CGO_LDFLAGS: "-L${{ github.workspace }}/chameleon/lib -lchameleon_core"
+          CGO_CFLAGS: "-I${{ github.workspace }}/chameleon-core/include"
+          LD_LIBRARY_PATH: "${{ github.workspace }}/chameleon/lib"
         run: |
-          go build -o chameleon${{ matrix.ext }} ./cmd/chameleon
+          go build -o chameleon ./cmd/chameleon
 
-      - name: Package artifact
-        shell: bash
+      - name: Package
         run: |
           mkdir -p dist
-          if [ "${{ matrix.archive }}" = "zip" ]; then
-            cp chameleon/chameleon.exe dist/
-            cd dist
-            zip chameleon-${{ matrix.goos }}-${{ matrix.goarch }}.zip chameleon.exe
-          else
-            cp chameleon/chameleon dist/
-            cd dist
-            tar -czf chameleon-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz chameleon
-          fi
+          cp chameleon/chameleon dist/
+          cp chameleon/lib/libchameleon_core.so dist/
+          cd dist
+          tar -czf chameleon-linux-amd64.tar.gz chameleon libchameleon_core.so
 
-      - name: Upload release assets
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chameleon-linux-amd64
+          path: dist/chameleon-linux-amd64.tar.gz
+
+      - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/*.tar.gz
-            dist/*.zip
+          files: dist/chameleon-linux-amd64.tar.gz
+
+  # macOS requires cross-compilation complexity, skip for now
+  # Windows requires MinGW setup, skip for now
