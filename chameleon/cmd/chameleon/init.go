@@ -112,6 +112,8 @@ port = 5432
 database = "myapp"
 user = "postgres"
 password = ""
+max_conns = 5
+min_conns = 1
 
 [migration]
 # Directory for migration files
@@ -138,8 +140,8 @@ func exampleReadme(projectName string) string {
 		"```\n\n" +
 		"## Schema\n\n" +
 		"The schema is defined in `schema.cham`. Edit it to model your domain.\n" +
-		"Psst, you can validate your schema with the [Visualizer Tool](https://chameleondb-web.vercel.app/visualizer/schema-visualizer.html).\n\n" +
+		"Psst, you can validate your schema with the [Visualizer Tool](https://chameleondb.dev/visualizer/schema-visualizer.html).\n\n" +
 		"## Learn More\n\n" +
-		"- [ChameleonDB Documentation](https://chameleondb-web.vercel.app/docs)\n" +
-		"- [Query API Reference]https://chameleondb-web.vercel.app/docs/pages/query-reference.html"
+		"- [ChameleonDB Documentation](https://chameleondb.dev/docs)\n" +
+		"- [Query API Reference]https://chameleondb.dev/docs/pages/query-reference.html"
 }

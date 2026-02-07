@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"time"
-	"strings"
 
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
 	"github.com/jackc/pgx/v5"
@@ -78,21 +77,20 @@ Examples:
 		// Apply migration
 		printInfo("Connecting to database...")
 
-		// Read config from .chameleon file
-		config, err := readConfig()
+		// Load config from DATABASE_URL or .chameleon
+		config, err := LoadConnectorConfig()
 		if err != nil {
-			printWarning("Could not read .chameleon config, using defaults")
-			config = engine.DefaultConfig()
+			return fmt.Errorf("failed to load config: %w", err)
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		err = eng.Connect(ctx, config)
-		if err != nil {
+		connector := engine.NewConnector(config)
+		if err := connector.Connect(ctx); err != nil {
 			return fmt.Errorf("failed to connect to database: %w", err)
 		}
-		defer eng.Close()
+		defer connector.Close()
 
 		printSuccess("Connected to database")
 		printInfo("Applying migration...")
@@ -122,55 +120,4 @@ func init() {
 	migrateCmd.Flags().BoolVar(&applyMigration, "apply", false, "apply migration to database")
 
 	rootCmd.AddCommand(migrateCmd)
-}
-
-// readConfig reads database config from .chameleon file
-func readConfig() (engine.ConnectorConfig, error) {
-	// Try to read .chameleon file
-	data, err := os.ReadFile(".chameleon")
-	if err != nil {
-		return engine.ConnectorConfig{}, err
-	}
-
-	config := engine.ConnectorConfig{
-		Host:     "localhost",
-		Port:     5432,
-		Database: "chameleon",
-		User:     "postgres",
-		Password: "",
-		MaxConns: 5,
-		MinConns: 1,
-	}
-
-	// Simple parsing (good enough for now)
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "#") || line == "" {
-			continue
-		}
-
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		key := strings.TrimSpace(parts[0])
-		value := strings.Trim(strings.TrimSpace(parts[1]), "\"")
-
-		switch key {
-		case "host":
-			config.Host = value
-		case "port":
-			fmt.Sscanf(value, "%d", &config.Port)
-		case "database":
-			config.Database = value
-		case "user":
-			config.User = value
-		case "password":
-			config.Password = value
-		}
-	}
-
-	return config, nil
 }

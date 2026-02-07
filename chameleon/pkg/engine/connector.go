@@ -3,6 +3,8 @@ package engine
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -99,4 +101,51 @@ func (c *Connector) Close() {
 		c.pool.Close()
 		c.pool = nil
 	}
+}
+
+// ParseConnectionString parses a PostgreSQL connection URL
+// Format: postgresql://user:password@host:port/dbname
+// or: postgres://user:password@host:port/dbname
+func ParseConnectionString(connStr string) (ConnectorConfig, error) {
+	parsed, err := url.Parse(connStr)
+	if err != nil {
+		return ConnectorConfig{}, fmt.Errorf("invalid connection string: %w", err)
+	}
+
+	if parsed.Scheme != "postgresql" && parsed.Scheme != "postgres" {
+		return ConnectorConfig{}, fmt.Errorf("unsupported scheme: %s (expected postgresql or postgres)", parsed.Scheme)
+	}
+
+	config := DefaultConfig()
+
+	// Host
+	config.Host = parsed.Hostname()
+	if config.Host == "" {
+		config.Host = "localhost"
+	}
+
+	// Port
+	if portStr := parsed.Port(); portStr != "" {
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return ConnectorConfig{}, fmt.Errorf("invalid port: %w", err)
+		}
+		config.Port = port
+	}
+
+	// Database
+	if parsed.Path != "" && parsed.Path != "/" {
+		config.Database = parsed.Path[1:] // Remove leading slash
+	}
+
+	// User
+	if parsed.User != nil {
+		config.User = parsed.User.Username()
+		password, ok := parsed.User.Password()
+		if ok {
+			config.Password = password
+		}
+	}
+
+	return config, nil
 }

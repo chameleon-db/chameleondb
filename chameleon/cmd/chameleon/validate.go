@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,6 +23,21 @@ Examples:
   chameleon validate path/to/schema.cham`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := context.Background()
+
+		config, err := LoadConnectorConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		eng := engine.NewEngine()
+		connector := engine.NewConnector(config)
+		if err := connector.Connect(ctx); err != nil {
+			return fmt.Errorf("failed to connect: %w", err)
+		}
+
+		defer connector.Close()
+
 		// Determine schema file
 		schemaFile := "schema.cham"
 		if len(args) > 0 {
@@ -42,7 +58,6 @@ Examples:
 		}
 
 		// Validate using LoadSchemaFromStringRaw
-		eng := engine.NewEngine()
 		_, rawErr, err := eng.LoadSchemaFromStringRaw(string(content))
 
 		if err != nil {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,6 +29,20 @@ Examples:
   chameleon check --json < schema.cham`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := context.Background()
+
+		config, err := LoadConnectorConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		eng := engine.NewEngine()
+		connector := engine.NewConnector(config)
+		if err := connector.Connect(ctx); err != nil {
+			return fmt.Errorf("failed to connect: %w", err)
+		}
+
+		defer connector.Close()
 		// Determine schema file or read from stdin
 		var input string
 		var filename string
@@ -77,7 +92,6 @@ Examples:
 		}
 
 		// Check the schema
-		eng := engine.NewEngine()
 		_, rawErr, err := eng.LoadSchemaFromStringRaw(input)
 
 		if err != nil {
