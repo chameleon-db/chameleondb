@@ -7,7 +7,7 @@ import (
 
 // Schema represents the complete database schema
 type Schema struct {
-	Entities map[string]*Entity `json:"entities"`
+	Entities []*Entity `json:"entities"`
 }
 
 // Entity represents a database entity (table)

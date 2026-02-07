@@ -101,3 +101,13 @@ func (e *Engine) GenerateMigration() (string, error) {
 
 	return ffi.GenerateMigration(string(schemaJSON))
 }
+
+// GetEntity returns an entity by name, or nil if not found
+func (s *Schema) GetEntity(name string) *Entity {
+	for _, entity := range s.Entities {
+		if entity.Name == name {
+			return entity
+		}
+	}
+	return nil
+}

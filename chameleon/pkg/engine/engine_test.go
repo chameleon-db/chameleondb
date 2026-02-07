@@ -32,8 +32,8 @@ func TestEngineLoadSchema(t *testing.T) {
 	}
 
 	// Verify User entity
-	user, ok := schema.Entities["User"]
-	if !ok {
+	user := schema.GetEntity("User")
+	if user == nil {
 		t.Fatal("User entity not found")
 	}
 
