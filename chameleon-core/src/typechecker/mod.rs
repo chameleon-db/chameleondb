@@ -4,6 +4,7 @@ mod constraints;
 
 use crate::ast::Schema;
 use errors::TypeCheckError;
+use std::collections::HashMap;
 
 /// Result of type checking a schema
 #[derive(Debug, Clone)]
@@ -33,7 +34,54 @@ impl TypeCheckResult {
 
 /// Run all type checks on a schema
 pub fn type_check(schema: &Schema) -> TypeCheckResult {
-    let mut errors = Vec::new();
+    let mut errors: Vec<TypeCheckError> = Vec::new();
+    let mut entity_names: HashMap<String, Vec<usize>> = HashMap::new();
+
+    // ===== ENTITIES =====
+    // Rastrear índices de aparición
+    for (i, entity) in schema.entities.iter().enumerate() {
+        entity_names
+            .entry(entity.name.clone())
+            .or_insert_with(Vec::new)
+            .push(i);
+    }
+
+    // Detectar duplicados
+    for (entity_name, indices) in entity_names.iter() {
+        if indices.len() > 1 {
+            // Hay duplicados
+            for (pos, &idx) in indices.iter().enumerate() {
+                if pos > 0 {  // Solo reportar a partir del segundo
+                    errors.push(TypeCheckError::DuplicateEntity {
+                        entity: entity_name.clone(),
+                        first: indices[0] + 1,
+                        second: idx + 1,
+                    });
+                }
+            }
+        }
+    }
+
+    // ===== FIELDS =====
+    for entity in &schema.entities {
+        let mut field_names: HashMap<String, Vec<usize>> = HashMap::new();
+        
+        for (i, field) in entity.fields.values().enumerate() {
+            field_names
+                .entry(field.name.clone())
+                .or_insert_with(Vec::new)
+                .push(i);
+        }
+
+        for (field_name, indices) in field_names.iter() {
+            if indices.len() > 1 {
+                errors.push(TypeCheckError::DuplicateField {
+                    entity: entity.name.clone(),
+                    field: field_name.clone(),
+                });
+            }
+        }
+    }
 
     // Relations
     errors.extend(relations::check_relations(schema));

@@ -186,7 +186,7 @@ mod tests {
         let schema = parse_schema(input).unwrap();
         assert_eq!(schema.entities.len(), 1);
         
-        let user = schema.entities.get("User").unwrap();
+        let user = schema.get_entity("User").unwrap();
         assert_eq!(user.fields.len(), 3);
         assert!(user.fields.get("id").unwrap().primary_key);
         assert!(user.fields.get("email").unwrap().unique);
@@ -211,7 +211,7 @@ mod tests {
         let schema = parse_schema(input).unwrap();
         assert_eq!(schema.entities.len(), 2);
         
-        let user = schema.entities.get("User").unwrap();
+        let user = schema.get_entity("User").unwrap();
         assert_eq!(user.relations.len(), 1);
         
         let orders_rel = user.relations.get("orders").unwrap();
@@ -230,7 +230,7 @@ fn test_backend_annotations() {
     "#;
     
     let schema = parse_schema(input).unwrap();
-    let user = schema.entities.get("User").unwrap();
+    let user = schema.get_entity("User").unwrap();
     
     // Fields sin anotación son OLTP implícito
     let id = user.fields.get("id").unwrap();
@@ -255,7 +255,7 @@ fn test_vector_type() {
     "#;
     
     let schema = parse_schema(input).unwrap();
-    let product = schema.entities.get("Product").unwrap();
+    let product = schema.get_entity("Product").unwrap();
     
     let embedding = product.fields.get("embedding").unwrap();
     assert_eq!(embedding.field_type, FieldType::Vector(1536));
@@ -273,7 +273,7 @@ fn test_array_types() {
     "#;
     
     let schema = parse_schema(input).unwrap();
-    let analytics = schema.entities.get("UserAnalytics").unwrap();
+    let analytics = schema.get_entity("UserAnalytics").unwrap();
     
     let tags = analytics.fields.get("tags").unwrap();
     assert_eq!(tags.field_type, FieldType::Array(Box::new(FieldType::String)));
@@ -297,7 +297,7 @@ fn test_complex_multi_backend_schema() {
     "#;
     
     let schema = parse_schema(input).unwrap();
-    let product = schema.entities.get("Product").unwrap();
+    let product = schema.get_entity("Product").unwrap();
     
     // Verify field count
     assert_eq!(product.fields.len(), 7);

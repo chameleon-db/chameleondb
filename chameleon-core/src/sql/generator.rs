@@ -20,7 +20,7 @@ pub struct GeneratedSQL {
 
 /// Generate SQL from a Query + Schema
 pub fn generate_sql(query: &Query, schema: &Schema) -> Result<GeneratedSQL, SqlGenError> {
-    let entity = schema.entities.get(&query.entity)
+    let entity = schema.get_entity(&query.entity)
         .ok_or_else(|| SqlGenError::UnknownEntity(query.entity.clone()))?;
 
     let table_name = entity_to_table(&query.entity);
@@ -148,7 +148,7 @@ fn build_joins(
     join_filters: &[&FilterExpr],
     schema: &Schema,
 ) -> Result<String, SqlGenError> {
-    let entity = schema.entities.get(entity_name).unwrap();
+    let entity = schema.get_entity(entity_name).unwrap();
     let mut joins = Vec::new();
     let mut joined_relations: Vec<String> = Vec::new();
 
@@ -254,7 +254,7 @@ fn condition_to_sql(
     let field_sql = if cond.field.is_nested() {
         // Nested: "orders.total" → "orders.total"
         let rel_name = cond.field.root();
-        let entity = schema.entities.get(entity_name).unwrap();
+        let entity = schema.get_entity(entity_name).unwrap();
         let relation = entity.relations.get(rel_name)
             .ok_or_else(|| SqlGenError::UnknownRelation {
                 entity: entity_name.to_string(),
@@ -371,7 +371,7 @@ fn build_eager_query_for_path(
     if processed.contains(&full_path) {
         // But continue processing deeper paths
         if path.len() > 1 {
-            let entity = schema.entities.get(current_entity).unwrap();
+            let entity = schema.get_entity(current_entity).unwrap();
             let relation = entity.relations.get(rel_name).unwrap();
             return build_eager_query_for_path(
                 &relation.target_entity,
@@ -384,7 +384,7 @@ fn build_eager_query_for_path(
         return Ok(());
     }
 
-    let entity = schema.entities.get(current_entity)
+    let entity = schema.get_entity(current_entity)
         .ok_or_else(|| SqlGenError::UnknownEntity(current_entity.to_string()))?;
 
     let relation = entity.relations.get(rel_name)
@@ -393,7 +393,7 @@ fn build_eager_query_for_path(
             relation: rel_name.clone(),
         })?;
 
-    let target_entity = schema.entities.get(&relation.target_entity)
+    let target_entity = schema.get_entity(&relation.target_entity)
         .ok_or_else(|| SqlGenError::UnknownEntity(relation.target_entity.clone()))?;
 
     let target_table = entity_to_table(&relation.target_entity);

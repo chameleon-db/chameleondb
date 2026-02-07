@@ -1,0 +1,9 @@
+entity User {
+    id: uuid primary,
+    email: string,
+}
+
+entity User {
+    id: uuid primary,
+    name: string,
+}

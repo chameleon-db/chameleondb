@@ -19,7 +19,7 @@ pub fn generate_migration(schema: &Schema) -> Result<Migration, MigrationError> 
     // 2. Generate CREATE TABLE for each entity in order
     let mut statements = Vec::new();
     for entity_name in &order {
-        let entity = schema.entities.get(entity_name).unwrap();
+        let entity = schema.get_entity(entity_name).unwrap();
         let sql = generate_create_table(entity, schema)?;
         statements.push((entity_name.clone(), sql));
     }
@@ -70,8 +70,8 @@ fn generate_create_table(entity: &Entity, schema: &Schema) -> Result<String, Mig
 
     // Foreign key constraints from HasMany relations in OTHER entities
     // that point TO this entity
-    for (other_name, other_entity) in &schema.entities {
-        if other_name == &entity.name {
+    for other_entity in &schema.entities {
+        if other_entity.name == entity.name {
             continue;
         }
         for (_, relation) in &other_entity.relations {
@@ -86,7 +86,7 @@ fn generate_create_table(entity: &Entity, schema: &Schema) -> Result<String, Mig
     // → that means another entity has a FK field pointing here
     // But actually, FKs are defined by fields like user_id in Order
     // We detect them by matching HasMany relations
-    for (other_name, other_entity) in &schema.entities {
+    for other_entity in &schema.entities {
         for (_, relation) in &other_entity.relations {
             if relation.kind == RelationKind::HasMany
                 && relation.target_entity == entity.name
@@ -94,7 +94,7 @@ fn generate_create_table(entity: &Entity, schema: &Schema) -> Result<String, Mig
                 // other_entity HasMany this entity via FK
                 // The FK field is IN this entity
                 if let Some(fk) = &relation.foreign_key {
-                    let other_table = entity_to_table(other_name);
+                    let other_table = entity_to_table(&other_entity.name);
                     constraints.push(format!(
                         "    FOREIGN KEY ({}) REFERENCES {}(id)",
                         fk, other_table
@@ -122,9 +122,9 @@ fn resolve_creation_order(schema: &Schema) -> Result<Vec<String>, MigrationError
     let mut visited = Vec::new();
     let mut in_stack = Vec::new();
 
-    for entity_name in schema.entities.keys() {
-        if !visited.contains(entity_name) {
-            topo_sort(schema, entity_name, &mut order, &mut visited, &mut in_stack)?;
+    for entity in &schema.entities {
+        if !visited.contains(&entity.name) {
+            topo_sort(schema, &entity.name, &mut order, &mut visited, &mut in_stack)?;
         }
     }
 
@@ -151,14 +151,14 @@ fn topo_sort(
 
     // Find all entities that have a HasMany relation pointing to this entity
     // Those are the dependencies - they must be created first
-    for (other_name, other_entity) in &schema.entities {
-        if other_name == current {
+    for other_entity in &schema.entities {
+        if other_entity.name == current {
             continue;
         }
         for (_, relation) in &other_entity.relations {
             if relation.kind == RelationKind::HasMany && relation.target_entity == current {
                 // other_entity has HasMany to current, so other_entity must be created first
-                topo_sort(schema, other_name, order, visited, in_stack)?;
+                topo_sort(schema, &other_entity.name, order, visited, in_stack)?;
             }
         }
     }

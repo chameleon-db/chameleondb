@@ -5,38 +5,38 @@ use super::errors::TypeCheckError;
 pub fn check_relations(schema: &Schema) -> Vec<TypeCheckError> {
     let mut errors = Vec::new();
 
-    for (entity_name, entity) in &schema.entities {
+    for entity in &schema.entities {
         for (_, relation) in &entity.relations {
             // 1. Target entity exists
-            if !schema.entities.contains_key(&relation.target_entity) {
+            if schema.get_entity(&relation.target_entity).is_none() {
                 errors.push(TypeCheckError::UnknownRelationTarget {
-                    entity: entity_name.clone(),
+                    entity: entity.name.clone(),
                     relation: relation.name.clone(),
                     target: relation.target_entity.clone(),
-                });
-                continue; // No tiene sentido validar más si el target no existe
-            }
-
-            // 2. HasMany requiere foreign key
-            if relation.kind == RelationKind::HasMany && relation.foreign_key.is_none() {
-                errors.push(TypeCheckError::MissingForeignKey {
-                    entity: entity_name.clone(),
-                    relation: relation.name.clone(),
                 });
                 continue;
             }
 
-            // 3. Foreign key existe en la entidad target
+            // 2. Foreign key exists in target entity
             if let Some(fk) = &relation.foreign_key {
-                let target = schema.entities.get(&relation.target_entity).unwrap();
-                if !target.fields.contains_key(fk) {
+                let target_entity = schema.get_entity(&relation.target_entity).unwrap();
+                
+                if !target_entity.fields.contains_key(fk) {
                     errors.push(TypeCheckError::InvalidForeignKey {
-                        entity: entity_name.clone(),
+                        entity: entity.name.clone(),
                         relation: relation.name.clone(),
                         target: relation.target_entity.clone(),
                         foreign_key: fk.clone(),
                     });
                 }
+            }
+
+            // 3. HasMany relations MUST have a foreign key
+            if relation.kind == RelationKind::HasMany && relation.foreign_key.is_none() {
+                errors.push(TypeCheckError::MissingForeignKey {
+                    entity: entity.name.clone(),
+                    relation: relation.name.clone(),
+                });
             }
         }
     }
@@ -50,9 +50,9 @@ pub fn check_circular_dependencies(schema: &Schema) -> Vec<TypeCheckError> {
     let mut visited: Vec<String> = Vec::new();
     let mut in_stack: Vec<String> = Vec::new();
 
-    for entity_name in schema.entities.keys() {
-        if !visited.contains(entity_name) {
-            if let Some(cycle) = dfs(schema, entity_name, &mut visited, &mut in_stack) {
+    for entity in &schema.entities {
+        if !visited.contains(&entity.name) {
+            if let Some(cycle) = dfs(schema, &entity.name, &mut visited, &mut in_stack) {
                 errors.push(TypeCheckError::CircularDependency { cycle });
             }
         }
@@ -69,16 +69,16 @@ fn dfs(
 ) -> Option<Vec<String>> {
     visited.push(current.to_string());
     in_stack.push(current.to_string());
-
-    if let Some(entity) = schema.entities.get(current) {
+    
+    if let Some(entity) = schema.get_entity(current) {
         for (_, relation) in &entity.relations {
             // BelongsTo is just the inverse side of a relation, skip it
             if relation.kind == RelationKind::BelongsTo {
                 continue;
             }
-
+            
             let target = &relation.target_entity;
-
+            
             if !visited.contains(target) {
                 if let Some(cycle) = dfs(schema, target, visited, in_stack) {
                     return Some(cycle);
@@ -91,7 +91,7 @@ fn dfs(
             }
         }
     }
-
+    
     in_stack.pop();
     None
 }

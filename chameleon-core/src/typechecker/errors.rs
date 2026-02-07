@@ -57,4 +57,21 @@ pub enum TypeCheckError {
     CircularDependency {
         cycle: Vec<String>,
     },
+
+    // Duplicates
+    #[error(
+        "Duplicate entity name '{entity}' (first defined at #{first}, redefined at #{second})"
+    )]
+    DuplicateEntity {
+        entity: String,
+        first: usize,
+        second: usize,
+    },
+
+    #[error("Duplicate field name '{field}' in entity '{entity}'")]
+    DuplicateField {
+        entity: String,
+        field: String,
+    }
+
 }

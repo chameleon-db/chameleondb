@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Schema {
-    pub entities: HashMap<String, Entity>,
+    pub entities: Vec<Entity>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -97,12 +97,21 @@ pub struct BackendCapabilities {
 impl Schema {
     pub fn new() -> Self {
         Schema {
-            entities: HashMap::new(),
+            entities: Vec::new(),
         }
     }
-    
+
     pub fn add_entity(&mut self, entity: Entity) {
-        self.entities.insert(entity.name.clone(), entity);
+        self.entities.push(entity);
+    }
+
+    // Helper para búsquedas rápidas
+    pub fn get_entity(&self, name: &str) -> Option<&Entity> {
+        self.entities.iter().find(|e| e.name == name)
+    }
+
+    pub fn get_entity_mut(&mut self, name: &str) -> Option<&mut Entity> {
+        self.entities.iter_mut().find(|e| e.name == name)
     }
 }
 
