@@ -5,8 +5,8 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: chameleon_test
-      POSTGRES_USER: chameleon
-      POSTGRES_PASSWORD: chameleon_test_pass
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
       - "5433:5432"
     healthcheck:
@@ -14,8 +14,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-    tmpfs:
-      - /var/lib/postgresql/data
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine
@@ -26,3 +26,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+      
+volumes:
+  postgres_data:

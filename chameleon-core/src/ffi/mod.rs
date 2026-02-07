@@ -386,7 +386,6 @@ pub unsafe extern "C" fn chameleon_generate_migration(
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -394,26 +393,29 @@ mod tests {
 
     #[test]
     fn test_parse_schema_success() {
-        let input = CString::new(r#"
+        let input = CString::new(
+            r#"
             entity User {
                 id: uuid primary,
                 email: string,
             }
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let mut error: *mut c_char = ptr::null_mut();
-        
+
         unsafe {
             let result = chameleon_parse_schema(input.as_ptr(), &mut error);
-            
+
             assert!(!result.is_null(), "Parse should succeed");
             assert!(error.is_null(), "No error should be set");
-            
+
             // Verify JSON output
             let json_str = CStr::from_ptr(result).to_str().unwrap();
             assert!(json_str.contains("User"));
             assert!(json_str.contains("email"));
-            
+
             // Cleanup
             chameleon_free_string(result);
         }
@@ -423,51 +425,81 @@ mod tests {
     fn test_parse_error_handling() {
         let input = CString::new("invalid syntax!!!").unwrap();
         let mut error: *mut c_char = ptr::null_mut();
-        
+
         unsafe {
             let result = chameleon_parse_schema(input.as_ptr(), &mut error);
-            
+
             assert!(result.is_null(), "Parse should fail");
             assert!(!error.is_null(), "Error should be set");
-            
+
             let error_msg = CStr::from_ptr(error).to_str().unwrap();
-            assert!(error_msg.contains("Parse error"));
-            
+            // Now it returns JSON with the error details
+            assert!(error_msg.contains("kind") || error_msg.contains("message"));
+
             // Cleanup
             chameleon_free_string(error);
         }
     }
 
     #[test]
-    fn test_validate_schema() {
-        let schema_json = CString::new(r#"
-        {
-            "entities": {
-                "User": {
-                    "name": "User",
-                    "fields": {
-                        "id": {
-                            "name": "id",
-                            "field_type": "UUID",
-                            "nullable": false,
-                            "unique": false,
-                            "primary_key": true,
-                            "default": null
-                        }
-                    },
-                    "relations": {}
-                }
+    fn test_validate_schema_success() {
+        // Valid schema with Vec<Entity> structure
+        let input = CString::new(
+            r#"
+            entity User {
+                id: uuid primary,
+                email: string,
             }
-        }
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let mut error: *mut c_char = ptr::null_mut();
-        
+
         unsafe {
-            let result = chameleon_validate_schema(schema_json.as_ptr(), &mut error);
+            let result = chameleon_validate_schema(input.as_ptr(), &mut error);
+
+            assert_eq!(result, ChameleonResult::Ok, "Validation should succeed");
             
-            assert_eq!(result, ChameleonResult::Ok);
-            assert!(error.is_null());
+            // error_out contains the JSON response
+            if !error.is_null() {
+                let json_str = CStr::from_ptr(error).to_str().unwrap();
+                assert!(json_str.contains("\"valid\":true"));
+                chameleon_free_string(error);
+            }
+        }
+    }
+
+    #[test]
+    fn test_validate_schema_with_duplicates() {
+        // Invalid schema with duplicate entities
+        let input = CString::new(
+            r#"
+            entity User {
+                id: uuid primary,
+                email: string,
+            }
+            entity User {
+                id: uuid primary,
+                name: string,
+            }
+        "#,
+        )
+        .unwrap();
+
+        let mut error: *mut c_char = ptr::null_mut();
+
+        unsafe {
+            let result = chameleon_validate_schema(input.as_ptr(), &mut error);
+
+            assert_eq!(result, ChameleonResult::ValidationError, "Should detect duplicate");
+            assert!(!error.is_null(), "Error message should be set");
+
+            let json_str = CStr::from_ptr(error).to_str().unwrap();
+            assert!(json_str.contains("\"valid\":false"));
+            assert!(json_str.contains("Duplicate entity"));
+
+            chameleon_free_string(error);
         }
     }
 
