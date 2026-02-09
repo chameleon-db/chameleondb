@@ -3,7 +3,10 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*.*.*"
+
+permissions:
+  contents: write
 
 env:
   RUST_BACKTRACE: 1
@@ -12,225 +15,106 @@ env:
 jobs:
   # ============ LINUX ============
   build-linux:
-    runs-on: ubuntu-20.04
-    strategy:
-      matrix:
-        arch: [amd64, arm64]
+    name: Build Linux
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Setup Rust
+      - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu
-
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: chameleon-core
-
-      - name: Setup Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.21'
 
       - name: Build Rust core
         working-directory: chameleon-core
         run: |
-          case "${{ matrix.arch }}" in
-            amd64)
-              cargo build --release --target x86_64-unknown-linux-gnu
-              cp target/x86_64-unknown-linux-gnu/release/libchameleon_core.so ../
-              ;;
-            arm64)
-              cargo build --release --target aarch64-unknown-linux-gnu
-              cp target/aarch64-unknown-linux-gnu/release/libchameleon_core.so ../
-              ;;
-          esac
+          cargo build --release
+          mkdir -p ../chameleon/lib
+          cp target/release/libchameleon_core.so ../chameleon/lib/
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
 
       - name: Build Go CLI
         working-directory: chameleon
         env:
-          CGO_ENABLED: 1
-          GOOS: linux
-          GOARCH: ${{ matrix.arch }}
-          LD_LIBRARY_PATH: ../
+          CGO_ENABLED: "1"
+          CGO_LDFLAGS: "-L${{ github.workspace }}/chameleon/lib -lchameleon_core"
+          CGO_CFLAGS: "-I${{ github.workspace }}/chameleon-core/include"
+          LD_LIBRARY_PATH: "${{ github.workspace }}/chameleon/lib"
         run: |
           go build -o chameleon ./cmd/chameleon
 
       - name: Package
         run: |
           mkdir -p dist
-          tar -czf dist/chameleon-linux-${{ matrix.arch }}.tar.gz \
-            -C chameleon chameleon \
-            -C .. libchameleon_core.so
-          
-          # Generate checksum
+          cp chameleon/chameleon dist/
+          cp chameleon/lib/libchameleon_core.so dist/
           cd dist
-          sha256sum chameleon-linux-${{ matrix.arch }}.tar.gz > chameleon-linux-${{ matrix.arch }}.sha256
+          tar -czf chameleon-linux-amd64.tar.gz chameleon libchameleon_core.so
+          sha256sum chameleon-linux-amd64.tar.gz > chameleon-linux-amd64.sha256
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.arch }}
-          path: dist/
+          name: chameleon-linux-amd64
+          path: dist/chameleon-linux-amd64.tar.gz
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/chameleon-linux-amd64.tar.gz
 
   # ============ macOS ============
   build-macos:
+    name: Build macOS
     runs-on: macos-12
-    strategy:
-      matrix:
-        arch: [x86_64, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Setup Rust
+      - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin, aarch64-apple-darwin
-
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: chameleon-core
-
-      - name: Setup Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.21'
 
       - name: Build Rust core
         working-directory: chameleon-core
         run: |
-          case "${{ matrix.arch }}" in
-            x86_64)
-              cargo build --release --target x86_64-apple-darwin
-              cp target/x86_64-apple-darwin/release/libchameleon_core.dylib ../
-              ;;
-            arm64)
-              cargo build --release --target aarch64-apple-darwin
-              cp target/aarch64-apple-darwin/release/libchameleon_core.dylib ../
-              ;;
-          esac
+          cargo build --release
+          mkdir -p ../chameleon/lib
+          cp target/release/libchameleon_core.dylib ../chameleon/lib/
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
 
       - name: Build Go CLI
         working-directory: chameleon
         env:
-          CGO_ENABLED: 1
-          GOOS: darwin
-          GOARCH: ${{ matrix.arch }}
-          LD_LIBRARY_PATH: ../
+          CGO_ENABLED: "1"
+          CGO_LDFLAGS: "-L${{ github.workspace }}/chameleon/lib -lchameleon_core"
+          CGO_CFLAGS: "-I${{ github.workspace }}/chameleon-core/include"
+          LD_LIBRARY_PATH: "${{ github.workspace }}/chameleon/lib"
         run: |
           go build -o chameleon ./cmd/chameleon
-
-      - name: Code sign (optional)
-        run: |
-          # macOS arm64 builds may require signing
-          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
-            codesign -s - chameleon/chameleon || true
-          fi
 
       - name: Package
         run: |
           mkdir -p dist
-          tar -czf dist/chameleon-macos-${{ matrix.arch }}.tar.gz \
-            -C chameleon chameleon \
-            -C .. libchameleon_core.dylib
-          
-          # Generate checksum
+          cp chameleon/chameleon dist/
+          cp chameleon/lib/libchameleon_core.dylib dist/
           cd dist
-          shasum -a 256 chameleon-macos-${{ matrix.arch }}.tar.gz > chameleon-macos-${{ matrix.arch }}.sha256
+          tar -czf chameleon-macos-universal.tar.gz chameleon libchameleon_core.dylib
+          shasum -a 256 chameleon-macos-universal.tar.gz > chameleon-macos-universal.sha256
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ matrix.arch }}
-          path: dist/
+          name: chameleon-macos-universal
+          path: dist/chameleon-macos-universal.tar.gz
 
-  # ============ WINDOWS (OPTIONAL - v0.2) ============
-  # build-windows:
-  #   runs-on: windows-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Setup Rust
-  #       uses: dtolnay/rust-toolchain@stable
-  #     - name: Setup Go
-  #       uses: actions/setup-go@v4
-  #       with:
-  #         go-version: '1.21'
-  #     - name: Build
-  #       run: |
-  #         cd chameleon-core
-  #         cargo build --release
-  #         cd ../chameleon
-  #         go build -o chameleon.exe ./cmd/chameleon
-  #     - name: Package
-  #       run: |
-  #         mkdir dist
-  #         7z a dist\chameleon-windows-amd64.zip chameleon\chameleon.exe chameleon-core\target\release\chameleon_core.dll
-
-  # ============ CREATE RELEASE ============
-  create-release:
-    needs: [build-linux, build-macos]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v3
+      - name: Release
+        uses: softprops/action-gh-release@v2
         with:
-          path: artifacts/
-
-      - name: Organize files
-        run: |
-          mkdir -p release
-          find artifacts -name '*.tar.gz' -o -name '*.sha256' | xargs -I {} cp {} release/
-
-      - name: Generate release notes
-        id: notes
-        run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          
-          cat > release_notes.md << 'EOF'
-          # ChameleonDB $VERSION
-          
-          ## What's New
-          - See CHANGELOG.md for details
-          
-          ## Installation
-          
-          **Linux (x64 or arm64):**
-
-          curl -sSL https://chameleondb.dev/install.sh | sh
-
-          
-          **macOS (Intel or Apple Silicon):**
-
-          curl -sSL https://chameleondb.dev/install.sh | sh
-
-          
-          **Verify integrity:**
-
-          sha256sum -c chameleon-linux-amd64.sha256
- 
-          ## Downloads
-          
-          | Platform | Download |
-          |----------|----------|
-          | Linux x64 | chameleon-linux-amd64.tar.gz |
-          | Linux arm64 | chameleon-linux-arm64.tar.gz |
-          | macOS Intel | chameleon-macos-x86_64.tar.gz |
-          | macOS Apple Silicon | chameleon-macos-arm64.tar.gz |
-          
-          EOF
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: release/*
-          body_path: release_notes.md
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: dist/chameleon-macos-universal.tar.gz
