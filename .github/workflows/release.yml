@@ -118,3 +118,55 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/chameleon-macos-universal.tar.gz
+
+  # ============ WINDOWS ============
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Rust core
+        working-directory: chameleon-core
+        run: |
+          cargo build --release
+          mkdir -p ../chameleon/lib
+          copy target\release\chameleon_core.dll ..\chameleon\lib\
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build Go CLI
+        working-directory: chameleon
+        env:
+          CGO_ENABLED: "1"
+          CGO_LDFLAGS: "-L${{ github.workspace }}\\chameleon\\lib -lchameleon_core"
+          CGO_CFLAGS: "-I${{ github.workspace }}\\chameleon-core\\include"
+        run: |
+          go build -o chameleon.exe ./cmd/chameleon
+
+      - name: Package
+        run: |
+          mkdir dist
+          copy chameleon\chameleon.exe dist\
+          copy chameleon\lib\chameleon_core.dll dist\
+          cd dist
+          tar -czf chameleon-windows-amd64.tar.gz chameleon.exe chameleon_core.dll
+          certutil -hashfile chameleon-windows-amd64.tar.gz SHA256 > chameleon-windows-amd64.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chameleon-windows-amd64
+          path: dist/chameleon-windows-amd64.tar.gz
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/chameleon-windows-amd64.tar.gz
