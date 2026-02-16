@@ -51,12 +51,13 @@ type OrderByClause struct {
 
 // QueryJSON is the serialization format matching Rust's Query
 type QueryJSON struct {
-	Entity   string          `json:"entity"`
-	Filters  []FilterExpr    `json:"filters"`
-	Includes []IncludePath   `json:"includes"`
-	OrderBy  []OrderByClause `json:"order_by"`
-	Limit    *uint64         `json:"limit"`
-	Offset   *uint64         `json:"offset"`
+	Entity       string          `json:"entity"`
+	Filters      []FilterExpr    `json:"filters"`
+	Includes     []IncludePath   `json:"includes"`
+	OrderBy      []OrderByClause `json:"order_by"`
+	Limit        *uint64         `json:"limit,omitempty"`
+	Offset       *uint64         `json:"offset,omitempty"`
+	SelectFields []string        `json:"select_fields"`
 }
 
 // GeneratedSQL mirrors Rust's GeneratedSQL
@@ -87,10 +88,11 @@ func (e *Engine) Query(entity string) *QueryBuilder {
 	return &QueryBuilder{
 		engine: e,
 		query: QueryJSON{
-			Entity:   entity,
-			Filters:  []FilterExpr{},
-			Includes: []IncludePath{},
-			OrderBy:  []OrderByClause{},
+			Entity:       entity,
+			Filters:      []FilterExpr{},
+			Includes:     []IncludePath{},
+			OrderBy:      []OrderByClause{},
+			SelectFields: []string{},
 		},
 	}
 }
@@ -211,6 +213,18 @@ func (qb *QueryBuilder) Execute(ctx context.Context) (*QueryResult, error) {
 	debugCtx.LogQuery(generated.MainQuery, duration, len(result.Rows))
 
 	return result, nil
+}
+
+// Select specifies which fields to retrieve
+// If not called, defaults to SELECT * (all fields)
+//
+// Examples:
+//
+//	db.Query("User").Select("id", "name").Execute(ctx)
+//	db.Query("User").Select("id", "email", "created_at").Execute(ctx)
+func (qb *QueryBuilder) Select(fields ...string) *QueryBuilder {
+	qb.query.SelectFields = fields
+	return qb
 }
 
 // --- Debugging ---

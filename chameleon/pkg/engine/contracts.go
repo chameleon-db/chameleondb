@@ -49,6 +49,9 @@ type InsertMutation interface {
 	// Set adds a field to insert
 	Set(field string, value interface{}) InsertMutation
 
+	// Debug enables debug output for this mutation
+	Debug() InsertMutation
+
 	// Execute validates and runs the mutation
 	Execute(ctx context.Context) (*InsertResult, error)
 }
@@ -59,9 +62,10 @@ type UpdateMutation interface {
 	Set(field string, value interface{}) UpdateMutation
 
 	// Filter adds a filter condition (WHERE clause)
-	// Field, operator, value format for type-safety
-	// Operators: eq, neq, gt, gte, lt, lte, like, in
 	Filter(field string, operator string, value interface{}) UpdateMutation
+
+	// Debug enables debug output for this mutation
+	Debug() UpdateMutation
 
 	// Execute validates and runs the mutation
 	Execute(ctx context.Context) (*UpdateResult, error)
@@ -70,8 +74,10 @@ type UpdateMutation interface {
 // DeleteMutation builds and executes DELETE operations
 type DeleteMutation interface {
 	// Filter adds a filter condition (WHERE clause)
-	// Field, operator, value format for type-safety
 	Filter(field string, operator string, value interface{}) DeleteMutation
+
+	// Debug enables debug output for this mutation
+	Debug() DeleteMutation
 
 	// Execute validates and runs the mutation
 	Execute(ctx context.Context) (*DeleteResult, error)

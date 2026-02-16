@@ -5,8 +5,16 @@ pub use ast::{Query, IncludePath, OrderByClause, SortDirection};
 pub use filter::{FilterExpr, FilterValue, ComparisonOp, LogicalOp, FieldPath, FilterCondition};
 
 #[cfg(test)]
+mod test_helper;
+
+#[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::generate_sql;
+
+    use super::test_helper::test_schema;
+   
+
+    use super::*;    
 
     // ─── FIELD PATH ───
 
@@ -198,5 +206,33 @@ mod tests {
         // Deserializar de vuelta
         let restored: Query = serde_json::from_str(&json).unwrap();
         assert_eq!(query, restored);
+    }
+
+    #[test]
+    fn test_select_specific_fields() {
+        let schema = test_schema();
+        let query = Query::new("User")
+            .select(vec!["id", "name"]);
+
+        let result = generate_sql(&query, &schema).unwrap();
+        
+        // Should only select id and name
+        assert!(result.main_query.contains("SELECT id, name"));
+        assert!(!result.main_query.contains("email"));
+        assert!(!result.main_query.contains("age"));
+    }
+
+    #[test]
+    fn test_select_all_when_empty() {
+        let schema = test_schema();
+        let query = Query::new("User");  // No .select() call
+
+        let result = generate_sql(&query, &schema).unwrap();
+        
+        // Should select all fields (backward compatible)
+        assert!(result.main_query.contains("SELECT"));
+        assert!(result.main_query.contains("id"));
+        assert!(result.main_query.contains("email"));
+        assert!(result.main_query.contains("name"));
     }
 }

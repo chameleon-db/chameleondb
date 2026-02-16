@@ -1,7 +1,11 @@
 package integration
 
 import (
+	"context"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // This test do not can done because the current implementation of the query does not support null values in filters.
@@ -351,4 +355,71 @@ func TestQueryFilterOnRelation(t *testing.T) {
 			t.Errorf("Unexpected user in results: %s", email)
 		}
 	}
+}
+
+func TestSelectSpecificFields(t *testing.T) {
+	skipIfNoDocker(t)
+
+	ctx := context.Background()
+	eng, ctx, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// Run migration
+	runMigration(t, eng, ctx)
+
+	// Insert test data (usa los UUIDs que insertTestData() crea)
+	insertTestData(t, ctx, testConfig())
+
+	// Query with Select - usando el email que sabemos que existe
+	result, err := eng.Query("User").
+		Select("id", "name").
+		Filter("email", "eq", "ana@mail.com").
+		Execute(ctx)
+
+	require.NoError(t, err)
+
+	// Debugging: si falla, imprime lo que obtuvimos
+	if len(result.Rows) == 0 {
+		t.Logf("No rows returned. Check if insertTestData created user with email='ana@mail.com'")
+	}
+
+	require.Len(t, result.Rows, 1, "Should find the inserted user")
+
+	row := result.Rows[0]
+
+	// Should have selected fields
+	assert.Contains(t, row, "id")
+	assert.Contains(t, row, "name")
+	assert.Equal(t, "Ana Garcia", row["name"])
+
+	// Should NOT have unselected fields
+	assert.NotContains(t, row, "email")
+	assert.NotContains(t, row, "age")
+}
+
+func TestSelectAllByDefault(t *testing.T) {
+	skipIfNoDocker(t)
+
+	ctx := context.Background()
+	eng, ctx, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	runMigration(t, eng, ctx)
+	insertTestData(t, ctx, testConfig())
+
+	// Query WITHOUT Select - should get all fields
+	result, err := eng.Query("User").
+		Filter("email", "eq", "ana@mail.com").
+		Execute(ctx)
+
+	require.NoError(t, err)
+	require.Len(t, result.Rows, 1)
+
+	row := result.Rows[0]
+
+	// Should have ALL fields
+	assert.Contains(t, row, "id")
+	assert.Contains(t, row, "name")
+	assert.Contains(t, row, "email")
+	assert.Contains(t, row, "age")
 }

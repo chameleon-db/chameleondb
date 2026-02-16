@@ -20,7 +20,7 @@ pub struct GeneratedSQL {
 
 /// Generate SQL from a Query + Schema
 pub fn generate_sql(query: &Query, schema: &Schema) -> Result<GeneratedSQL, SqlGenError> {
-    let entity = schema.get_entity(&query.entity)
+   let entity = schema.get_entity(&query.entity)
         .ok_or_else(|| SqlGenError::UnknownEntity(query.entity.clone()))?;
 
     let table_name = entity_to_table(&query.entity);
@@ -40,6 +40,7 @@ pub fn generate_sql(query: &Query, schema: &Schema) -> Result<GeneratedSQL, SqlG
         &query.order_by,
         query.limit,
         query.offset,
+        &query.select_fields,
         schema,
     )?;
 
@@ -84,12 +85,13 @@ fn build_main_query(
     order_by: &[crate::query::OrderByClause],
     limit: Option<u64>,
     offset: Option<u64>,
+    select_fields: &[String],
     schema: &Schema,
 ) -> Result<String, SqlGenError> {
     let mut parts: Vec<String> = Vec::new();
 
     // SELECT
-    let columns = build_select_columns(table_name, entity, needs_join);
+    let columns = build_select_columns(table_name, entity, needs_join, select_fields);  // ← PASS NEW PARAM
     let distinct = if needs_join { "DISTINCT " } else { "" };
     parts.push(format!("SELECT {}{}", distinct, columns));
 
@@ -128,16 +130,37 @@ fn build_main_query(
 }
 
 /// Build SELECT column list
-fn build_select_columns(table_name: &str, entity: &crate::ast::Entity, qualify: bool) -> String {
-    let columns: Vec<String> = entity.fields.keys()
-        .map(|name| {
-            if qualify {
-                format!("{}.{}", table_name, name)
-            } else {
-                name.clone()
-            }
-        })
-        .collect();
+/// If select_fields is empty, select all fields (SELECT *)
+/// Otherwise, select only specified fields
+fn build_select_columns(
+    table_name: &str,
+    entity: &crate::ast::Entity,
+    qualify: bool,
+    select_fields: &[String],  // ← NEW PARAMETER
+) -> String {
+    let columns: Vec<String> = if select_fields.is_empty() {
+        // SELECT * - all fields (backward compatible)
+        entity.fields.keys()
+            .map(|name| {
+                if qualify {
+                    format!("{}.{}", table_name, name)
+                } else {
+                    name.clone()
+                }
+            })
+            .collect()
+    } else {
+        // SELECT specific fields (NEW BEHAVIOR)
+        select_fields.iter()
+            .map(|name| {
+                if qualify {
+                    format!("{}.{}", table_name, name)
+                } else {
+                    name.clone()
+                }
+            })
+            .collect()
+    };
 
     columns.join(", ")
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
 )
@@ -11,7 +12,6 @@ import (
 // ============================================================
 // INSERT BUILDER
 // ============================================================
-//
 
 type InsertBuilder struct {
 	schema *engine.Schema
@@ -19,9 +19,9 @@ type InsertBuilder struct {
 	values map[string]interface{}
 	config engine.ValidatorConfig
 
-	debug  bool
-	dryRun bool
-	sql    string
+	// Debug settings (inherited from engine or per-mutation)
+	debugLevel *engine.DebugLevel
+	debugCtx   *engine.DebugContext
 }
 
 func NewInsertBuilder(schema *engine.Schema, entity string) *InsertBuilder {
@@ -33,111 +33,110 @@ func NewInsertBuilder(schema *engine.Schema, entity string) *InsertBuilder {
 	}
 }
 
-func (ib *InsertBuilder) Set(field string, value interface{}) *InsertBuilder {
+// Set implements engine.InsertMutation
+func (ib *InsertBuilder) Set(field string, value interface{}) engine.InsertMutation {
 	ib.values[field] = value
 	return ib
 }
 
-func (ib *InsertBuilder) Debug() *InsertBuilder {
-	ib.debug = true
+// Debug implements engine.InsertMutation
+func (ib *InsertBuilder) Debug() engine.InsertMutation {
+	level := engine.DebugSQL
+	ib.debugLevel = &level
 	return ib
 }
 
-func (ib *InsertBuilder) DryRun() *InsertBuilder {
-	ib.dryRun = true
-	return ib
-}
+// Execute implements engine.InsertMutation
+func (ib *InsertBuilder) Execute(ctx context.Context) (*engine.InsertResult, error) {
+	start := time.Now()
 
-// Build implements engine.MutationBuilder
-func (ib *InsertBuilder) Build() (*engine.Mutation, error) {
+	// Validate
 	validator := engine.NewValidator(ib.schema, ib.config)
 	if err := validator.ValidateInsertInput(ib.entity, ib.values); err != nil {
 		return nil, err
 	}
 
-	ib.sql = ib.generateInsertSQL()
+	// Generate SQL
+	sql := ib.generateSQL()
 
-	return &engine.Mutation{
-		Type:      engine.MutationInsert,
-		Entity:    ib.entity,
-		HasFilter: false,
-	}, nil
-}
-
-// Exec implements engine.MutationBuilder
-func (ib *InsertBuilder) Exec() error {
-	if ib.sql == "" {
-		if _, err := ib.Build(); err != nil {
-			return err
-		}
+	// Debug output
+	if ib.shouldDebug() {
+		ib.logSQL(sql)
 	}
 
-	if ib.debug {
-		fmt.Printf("\n[SQL]\n%s\n\n", ib.sql)
+	// TODO: Execute via connector/executor
+	// For now, return success without actual execution
+
+	duration := time.Since(start)
+
+	// Debug trace
+	if ib.shouldTrace() {
+		ib.logTrace("INSERT", duration, 1)
 	}
 
-	if ib.dryRun {
-		return nil
-	}
-
-	// TODO: ejecutar vía executor / FFI
-	return nil
-}
-
-// Execute mantiene compatibilidad con tu API actual
-func (ib *InsertBuilder) Execute(ctx context.Context) (*InsertResult, error) {
-	if err := ib.Exec(); err != nil {
-		return nil, err
-	}
-
-	return &InsertResult{
-		SQL:      ib.sql,
+	return &engine.InsertResult{
+		ID:       nil, // Will be filled by actual executor
+		Record:   nil, // Will be filled by actual executor
 		Affected: 1,
-		DryRun:   ib.dryRun,
 	}, nil
 }
 
-func (ib *InsertBuilder) generateInsertSQL() string {
+func (ib *InsertBuilder) shouldDebug() bool {
+	if ib.debugLevel != nil {
+		return *ib.debugLevel >= engine.DebugSQL
+	}
+	return false
+}
+
+func (ib *InsertBuilder) shouldTrace() bool {
+	if ib.debugLevel != nil {
+		return *ib.debugLevel >= engine.DebugTrace
+	}
+	return false
+}
+
+func (ib *InsertBuilder) logSQL(sql string) {
+	fmt.Printf("\n[SQL] INSERT INTO %s\n%s\n\n", ib.entity, sql)
+}
+
+func (ib *InsertBuilder) logTrace(operation string, duration time.Duration, affected int) {
+	fmt.Printf("[TRACE] %s on %s: %v, %d rows\n", operation, ib.entity, duration, affected)
+}
+
+func (ib *InsertBuilder) generateSQL() string {
 	var fields []string
 	var placeholders []string
 	i := 1
 
 	for field := range ib.values {
-		fields = append(fields, fmt.Sprintf(`"%s"`, field))
+		fields = append(fields, field)
 		placeholders = append(placeholders, fmt.Sprintf("$%d", i))
 		i++
 	}
 
+	table := strings.ToLower(ib.entity) + "s" // Simple pluralization
+
 	return fmt.Sprintf(
-		`INSERT INTO "%s" (%s) VALUES (%s) RETURNING *`,
-		ib.entity,
-		formatList(fields),
-		formatList(placeholders),
+		"INSERT INTO %s (%s) VALUES (%s) RETURNING *",
+		table,
+		strings.Join(fields, ", "),
+		strings.Join(placeholders, ", "),
 	)
 }
 
-type InsertResult struct {
-	SQL      string
-	Affected int
-	DryRun   bool
-}
-
-//
 // ============================================================
 // UPDATE BUILDER
 // ============================================================
-//
 
 type UpdateBuilder struct {
-	schema   *engine.Schema
-	entity   string
-	filters  map[string]interface{}
-	updates  map[string]interface{}
-	config   engine.ValidatorConfig
-	debug    bool
-	dryRun   bool
-	sql      string
-	forceAll bool
+	schema  *engine.Schema
+	entity  string
+	filters map[string]interface{}
+	updates map[string]interface{}
+	config  engine.ValidatorConfig
+
+	// Debug settings
+	debugLevel *engine.DebugLevel
 }
 
 func NewUpdateBuilder(schema *engine.Schema, entity string) *UpdateBuilder {
@@ -150,33 +149,31 @@ func NewUpdateBuilder(schema *engine.Schema, entity string) *UpdateBuilder {
 	}
 }
 
-func (ub *UpdateBuilder) Filter(field string, op string, value interface{}) *UpdateBuilder {
+// Filter implements engine.UpdateMutation
+func (ub *UpdateBuilder) Filter(field string, op string, value interface{}) engine.UpdateMutation {
 	key := fmt.Sprintf("%s:%s", field, op)
 	ub.filters[key] = value
 	return ub
 }
 
-func (ub *UpdateBuilder) Set(field string, value interface{}) *UpdateBuilder {
+// Set implements engine.UpdateMutation
+func (ub *UpdateBuilder) Set(field string, value interface{}) engine.UpdateMutation {
 	ub.updates[field] = value
 	return ub
 }
 
-func (ub *UpdateBuilder) ForceUpdateAll() *UpdateBuilder {
-	ub.forceAll = true
+// Debug implements engine.UpdateMutation
+func (ub *UpdateBuilder) Debug() engine.UpdateMutation {
+	level := engine.DebugSQL
+	ub.debugLevel = &level
 	return ub
 }
 
-func (ub *UpdateBuilder) Debug() *UpdateBuilder {
-	ub.debug = true
-	return ub
-}
+// Execute implements engine.UpdateMutation
+func (ub *UpdateBuilder) Execute(ctx context.Context) (*engine.UpdateResult, error) {
+	start := time.Now()
 
-func (ub *UpdateBuilder) DryRun() *UpdateBuilder {
-	ub.dryRun = true
-	return ub
-}
-
-func (ub *UpdateBuilder) Build() (*engine.Mutation, error) {
+	// Validate
 	validator := engine.NewValidator(ub.schema, ub.config)
 	if err := validator.ValidateUpdateInput(
 		ub.entity,
@@ -186,76 +183,92 @@ func (ub *UpdateBuilder) Build() (*engine.Mutation, error) {
 		return nil, err
 	}
 
-	ub.sql = ub.generateUpdateSQL()
+	// Generate SQL
+	sql := ub.generateSQL()
 
-	return &engine.Mutation{
-		Type:      engine.MutationUpdate,
-		Entity:    ub.entity,
-		HasFilter: len(ub.filters) > 0,
+	// Debug output
+	if ub.shouldDebug() {
+		fmt.Printf("\n[SQL] UPDATE %s\n%s\n\n", ub.entity, sql)
+	}
+
+	// TODO: Execute via connector/executor
+
+	duration := time.Since(start)
+
+	if ub.shouldTrace() {
+		fmt.Printf("[TRACE] UPDATE on %s: %v, %d rows\n", ub.entity, duration, 0)
+	}
+
+	return &engine.UpdateResult{
+		Records:  nil,
+		Affected: 0,
 	}, nil
 }
 
-// Exec executes the validated mutation
-func (ub *UpdateBuilder) Exec() error {
-	if ub.sql == "" {
-		if _, err := ub.Build(); err != nil {
-			return err
-		}
+func (ub *UpdateBuilder) shouldDebug() bool {
+	if ub.debugLevel != nil {
+		return *ub.debugLevel >= engine.DebugSQL
 	}
-
-	if ub.debug {
-		fmt.Printf("\n[SQL]\n%s\n\n", ub.sql)
-	}
-
-	if ub.dryRun {
-		return nil
-	}
-
-	// TODO: ejecutar vía executor / FFI
-	return nil
+	return false
 }
 
-func (ub *UpdateBuilder) generateUpdateSQL() string {
+func (ub *UpdateBuilder) shouldTrace() bool {
+	if ub.debugLevel != nil {
+		return *ub.debugLevel >= engine.DebugTrace
+	}
+	return false
+}
+
+func (ub *UpdateBuilder) generateSQL() string {
 	var setClauses []string
 	i := 1
 
 	for field := range ub.updates {
-		setClauses = append(setClauses, fmt.Sprintf(`"%s"=$%d`, field, i))
+		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", field, i))
 		i++
 	}
 
 	var filterClauses []string
 	for field := range ub.filters {
 		fieldName := strings.Split(field, ":")[0]
-		filterClauses = append(filterClauses, fmt.Sprintf(`"%s"=$%d`, fieldName, i))
+		filterClauses = append(filterClauses, fmt.Sprintf("%s = $%d", fieldName, i))
 		i++
 	}
 
-	table := strings.ToLower(ub.entity)
+	table := strings.ToLower(ub.entity) + "s"
 
 	return fmt.Sprintf(
-		`UPDATE "%s" SET %s WHERE %s RETURNING *`,
+		"UPDATE %s SET %s WHERE %s RETURNING *",
 		table,
 		strings.Join(setClauses, ", "),
 		strings.Join(filterClauses, " AND "),
 	)
 }
 
-//
+func (ub *UpdateBuilder) parseFilters() map[string]interface{} {
+	result := make(map[string]interface{})
+	for key, value := range ub.filters {
+		parts := strings.Split(key, ":")
+		if len(parts) > 0 {
+			result[parts[0]] = value
+		}
+	}
+	return result
+}
+
 // ============================================================
 // DELETE BUILDER
 // ============================================================
-//
 
 type DeleteBuilder struct {
 	schema         *engine.Schema
 	entity         string
 	filters        map[string]interface{}
 	config         engine.ValidatorConfig
-	debug          bool
-	dryRun         bool
-	sql            string
 	forceDeleteAll bool
+
+	// Debug settings
+	debugLevel *engine.DebugLevel
 }
 
 func NewDeleteBuilder(schema *engine.Schema, entity string) *DeleteBuilder {
@@ -267,28 +280,25 @@ func NewDeleteBuilder(schema *engine.Schema, entity string) *DeleteBuilder {
 	}
 }
 
-func (db *DeleteBuilder) Filter(field string, op string, value interface{}) *DeleteBuilder {
+// Filter implements engine.DeleteMutation
+func (db *DeleteBuilder) Filter(field string, op string, value interface{}) engine.DeleteMutation {
 	key := fmt.Sprintf("%s:%s", field, op)
 	db.filters[key] = value
 	return db
 }
 
-func (db *DeleteBuilder) ForceDeleteAll() *DeleteBuilder {
-	db.forceDeleteAll = true
+// Debug implements engine.DeleteMutation
+func (db *DeleteBuilder) Debug() engine.DeleteMutation {
+	level := engine.DebugSQL
+	db.debugLevel = &level
 	return db
 }
 
-func (db *DeleteBuilder) Debug() *DeleteBuilder {
-	db.debug = true
-	return db
-}
+// Execute implements engine.DeleteMutation
+func (db *DeleteBuilder) Execute(ctx context.Context) (*engine.DeleteResult, error) {
+	start := time.Now()
 
-func (db *DeleteBuilder) DryRun() *DeleteBuilder {
-	db.dryRun = true
-	return db
-}
-
-func (db *DeleteBuilder) Build() (*engine.Mutation, error) {
+	// Validate
 	validator := engine.NewValidator(db.schema, db.config)
 	if err := validator.ValidateDeleteInput(
 		db.entity,
@@ -298,108 +308,71 @@ func (db *DeleteBuilder) Build() (*engine.Mutation, error) {
 		return nil, err
 	}
 
-	db.sql = db.generateDeleteSQL()
+	// Generate SQL
+	sql := db.generateSQL()
 
-	return &engine.Mutation{
-		Type:      engine.MutationDelete,
-		Entity:    db.entity,
-		HasFilter: len(db.filters) > 0,
+	// Debug output
+	if db.shouldDebug() {
+		fmt.Printf("\n[SQL] DELETE FROM %s\n%s\n\n", db.entity, sql)
+	}
+
+	// TODO: Execute via connector/executor
+
+	duration := time.Since(start)
+
+	if db.shouldTrace() {
+		fmt.Printf("[TRACE] DELETE on %s: %v, %d rows\n", db.entity, duration, 0)
+	}
+
+	return &engine.DeleteResult{
+		Affected: 0,
 	}, nil
 }
 
-// Exec executes the validated mutation
-func (db *DeleteBuilder) Exec() error {
-	if db.sql == "" {
-		if _, err := db.Build(); err != nil {
-			return err
-		}
+func (db *DeleteBuilder) shouldDebug() bool {
+	if db.debugLevel != nil {
+		return *db.debugLevel >= engine.DebugSQL
 	}
-
-	if db.debug {
-		fmt.Printf("\n[SQL]\n%s\n\n", db.sql)
-	}
-
-	if db.dryRun {
-		return nil
-	}
-
-	// TODO: ejecutar vía executor / FFI
-	return nil
+	return false
 }
 
-func (db *DeleteBuilder) generateDeleteSQL() string {
+func (db *DeleteBuilder) shouldTrace() bool {
+	if db.debugLevel != nil {
+		return *db.debugLevel >= engine.DebugTrace
+	}
+	return false
+}
+
+func (db *DeleteBuilder) generateSQL() string {
 	var filterClauses []string
 	i := 1
 
 	for field := range db.filters {
 		fieldName := strings.Split(field, ":")[0]
-		filterClauses = append(filterClauses, fmt.Sprintf(`"%s"=$%d`, fieldName, i))
+		filterClauses = append(filterClauses, fmt.Sprintf("%s = $%d", fieldName, i))
 		i++
 	}
 
-	table := strings.ToLower(db.entity)
+	table := strings.ToLower(db.entity) + "s"
+
+	if len(filterClauses) == 0 {
+		return fmt.Sprintf("DELETE FROM %s", table)
+	}
 
 	return fmt.Sprintf(
-		`DELETE FROM "%s" WHERE %s`,
+		"DELETE FROM %s WHERE %s",
 		table,
 		strings.Join(filterClauses, " AND "),
 	)
 }
 
-//
-// ============================================================
-// UTILS
-// ============================================================
-//
-
-func formatList(items []string) string {
-	result := ""
-	for i, item := range items {
-		if i > 0 {
-			result += ", "
-		}
-		result += item
-	}
-	return result
-}
-
 func (db *DeleteBuilder) parseFilters() map[string]interface{} {
 	result := make(map[string]interface{})
 	for key, value := range db.filters {
-		parts := formatStringSplit(key, ":")
+		parts := strings.Split(key, ":")
 		if len(parts) > 0 {
 			result[parts[0]] = value
 		}
-	}
-	return result
-}
-
-func (ub *UpdateBuilder) parseFilters() map[string]interface{} {
-	result := make(map[string]interface{})
-	for key, value := range ub.filters {
-		parts := formatStringSplit(key, ":")
-		if len(parts) > 0 {
-			result[parts[0]] = value
-		}
-	}
-	return result
-}
-
-func formatStringSplit(s, sep string) []string {
-	var result []string
-	current := ""
-	for _, char := range s {
-		if string(char) == sep {
-			if current != "" {
-				result = append(result, current)
-				current = ""
-			}
-		} else {
-			current += string(char)
-		}
-	}
-	if current != "" {
-		result = append(result, current)
 	}
 	return result
 }

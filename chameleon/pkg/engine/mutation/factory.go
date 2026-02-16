@@ -1,11 +1,8 @@
 package mutation
 
-// ============================================================
-// MUTATION FACTORY NOW LIVES IN engine/registry.go
-// ============================================================
-//
+import "github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
 
-/* type Factory struct {
+type Factory struct {
 	schema *engine.Schema
 }
 
@@ -13,15 +10,17 @@ func NewFactory(schema *engine.Schema) *Factory {
 	return &Factory{schema: schema}
 }
 
-func (f *Factory) Insert(entity string) engine.InsertMutation {
+// NewInsert creates an insert builder
+func (f *Factory) NewInsert(entity string) engine.InsertMutation {
 	return NewInsertBuilder(f.schema, entity)
 }
 
-func (f *Factory) Update(entity string) engine.UpdateMutation {
+// NewUpdate creates an update builder
+func (f *Factory) NewUpdate(entity string) engine.UpdateMutation {
 	return NewUpdateBuilder(f.schema, entity)
 }
 
-func (f *Factory) Delete(entity string) engine.DeleteMutation {
+// NewDelete creates a delete builder
+func (f *Factory) NewDelete(entity string) engine.DeleteMutation {
 	return NewDeleteBuilder(f.schema, entity)
 }
-*/

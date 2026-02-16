@@ -107,6 +107,13 @@ func (v *Validator) ValidateUpdateInput(
 	updates map[string]interface{},
 ) error {
 	ent := v.schema.GetEntity(entity)
+	if len(updates) == 0 {
+		return &SafetyError{
+			Operation:  "update_with_no_fields",
+			Message:    "UPDATE requires at least one field to update",
+			Suggestion: "Use Set() to specify fields to update",
+		}
+	}
 	if ent == nil {
 		return &UnknownEntityError{
 			Entity:    entity,

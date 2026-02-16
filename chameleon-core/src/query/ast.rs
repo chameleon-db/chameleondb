@@ -52,6 +52,10 @@ pub struct Query {
 
     /// Number of results to skip
     pub offset: Option<u64>,
+
+    // Select fields for projection (e.g., ["name", "email"])
+    pub select_fields: Vec<String>,
+
 }
 
 impl Query {
@@ -64,6 +68,7 @@ impl Query {
             order_by: Vec::new(),
             limit: None,
             offset: None,
+            select_fields: Vec::new(),
         }
     }
 
@@ -97,6 +102,12 @@ impl Query {
     /// Set offset
     pub fn offset(mut self, n: u64) -> Self {
         self.offset = Some(n);
+        self
+    }
+
+    /// Set select fields
+    pub fn select(mut self, fields: Vec<&str>) -> Self {
+        self.select_fields = fields.into_iter().map(|s| s.to_string()).collect();
         self
     }
 }
