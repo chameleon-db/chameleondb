@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
-	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine/mutation"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -71,9 +70,6 @@ func setupTestDB(t *testing.T) (*engine.Engine, context.Context, func()) {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-
-	factory := mutation.NewFactory(eng.GetSchema())
-	eng.SetMutationFactory(factory)
 
 	// Cleanup function
 	cleanup := func() {

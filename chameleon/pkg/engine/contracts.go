@@ -89,44 +89,30 @@ type DeleteMutation interface {
 
 // MutationFactory creates mutation builders
 //
-// Factory is initialized once per Engine with the schema.
-// Engine delegates all mutation creation to this factory.
+// CRITICAL: Factory is STATELESS.
+// Schema and Connector are passed in each call to allow registry pattern.
+// This avoids import cycles (engine <-> mutation).
 //
-// This allows multiple implementations:
-//   - SQL mutations (v0.1)
-//   - GraphQL mutations (v0.2)
-//   - REST mutations (v0.2)
-//   - Custom mutations (via SetMutationFactory)
+// Factory is registered once via init() in mutation package.
+// Engine uses it via getMutationFactory() from registry.
 type MutationFactory interface {
 	// NewInsert creates a builder for INSERT operations
-	NewInsert(entity string) InsertMutation
+	// Schema and Connector are passed in to keep factory stateless
+	NewInsert(entity string, schema *Schema, connector *Connector) InsertMutation
 
 	// NewUpdate creates a builder for UPDATE operations
-	NewUpdate(entity string) UpdateMutation
+	NewUpdate(entity string, schema *Schema, connector *Connector) UpdateMutation
 
 	// NewDelete creates a builder for DELETE operations
-	NewDelete(entity string) DeleteMutation
+	NewDelete(entity string, schema *Schema, connector *Connector) DeleteMutation
 }
 
 // ============================================================
-// AUXILIARY CONTRACTS (for future use)
+// AUXILIARY CONTRACTS
 // ============================================================
-
-/* // Executor runs SQL against a database
-// (Can be swapped for different backends: PostgreSQL, MySQL, SQLite, etc)
-type Executor interface {
-	Execute(ctx context.Context, sql string, params ...interface{}) (*ExecutionResult, error)
-} */
 
 type ExecutionResult struct {
 	RowsAffected int64
 	LastInsertID interface{}
 	Rows         []map[string]interface{}
 }
-
-/* // Validator checks mutation inputs for correctness
-type Validator interface {
-	ValidateInsertInput(entity string, fields map[string]interface{}) error
-	ValidateUpdateInput(entity string, filters map[string]interface{}, updates map[string]interface{}) error
-	ValidateDeleteInput(entity string, filters map[string]interface{}, forceAll bool) error
-} */

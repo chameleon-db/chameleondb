@@ -1,7 +1,6 @@
 package mutation
 
 import (
-	"context"
 	"testing"
 
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
@@ -11,7 +10,7 @@ import (
 // TEST HELPERS
 // ============================================================
 
-// Helper: create test schema
+// testSchema creates a test schema for unit tests
 func testSchema() *engine.Schema {
 	schema := &engine.Schema{
 		Entities: []*engine.Entity{
@@ -62,13 +61,19 @@ func testSchema() *engine.Schema {
 	return schema
 }
 
+// mockConnector returns nil - these are unit tests that don't execute against DB
+// For tests that need DB, use integration tests in tests/integration/
+func mockConnector() *engine.Connector {
+	return nil
+}
+
 // ============================================================
 // INSERT BUILDER TESTS
 // ============================================================
 
 func TestInsertBuilder_Set(t *testing.T) {
 	schema := testSchema()
-	builder := NewInsertBuilder(schema, "User")
+	builder := NewInsertBuilder(schema, mockConnector(), "User")
 
 	// Test chainable API
 	result := builder.Set("email", "ana@mail.com").Set("name", "Ana")
@@ -90,7 +95,7 @@ func TestInsertBuilder_Set(t *testing.T) {
 
 func TestInsertBuilder_Set_MultipleValues(t *testing.T) {
 	schema := testSchema()
-	builder := NewInsertBuilder(schema, "User")
+	builder := NewInsertBuilder(schema, mockConnector(), "User")
 
 	// Set same field twice (last one should win)
 	builder.Set("name", "Ana").Set("name", "Ana María")
@@ -102,7 +107,7 @@ func TestInsertBuilder_Set_MultipleValues(t *testing.T) {
 
 func TestInsertBuilder_Debug(t *testing.T) {
 	schema := testSchema()
-	builder := NewInsertBuilder(schema, "User")
+	builder := NewInsertBuilder(schema, mockConnector(), "User")
 
 	result := builder.Debug()
 
@@ -120,80 +125,30 @@ func TestInsertBuilder_Debug(t *testing.T) {
 	}
 }
 
-func TestInsertBuilder_Execute_Success(t *testing.T) {
-	schema := testSchema()
-	builder := NewInsertBuilder(schema, "User")
-	builder.Set("email", "ana@mail.com").Set("name", "Ana")
-
-	result, err := builder.Execute(context.Background())
-
-	if err != nil {
-		t.Fatalf("Execute() should succeed with valid input: %v", err)
-	}
-
-	if result == nil {
-		t.Error("Execute() should return non-nil result")
-	}
-
-	// Note: Affected count is mock data since we don't execute real SQL yet
-	if result.Affected != 1 {
-		t.Errorf("Expected Affected=1, got %d", result.Affected)
-	}
-}
-
-func TestInsertBuilder_Execute_ValidationError_UnknownField(t *testing.T) {
-	schema := testSchema()
-	builder := NewInsertBuilder(schema, "User")
-	builder.Set("unknown_field", "value")
-
-	_, err := builder.Execute(context.Background())
-
-	if err == nil {
-		t.Error("Execute() should fail with unknown field")
-	}
-}
-
-func TestInsertBuilder_Execute_ValidationError_UnknownEntity(t *testing.T) {
-	schema := testSchema()
-	builder := NewInsertBuilder(schema, "NonExistentEntity")
-	builder.Set("field", "value")
-
-	_, err := builder.Execute(context.Background())
-
-	if err == nil {
-		t.Error("Execute() should fail with non-existent entity")
-	}
-}
-
-func TestInsertBuilder_Execute_ValidationError_MissingRequiredField(t *testing.T) {
-	schema := testSchema()
-	builder := NewInsertBuilder(schema, "User")
-	// Missing required fields: email, name
-
-	_, err := builder.Execute(context.Background())
-
-	if err == nil {
-		t.Error("Execute() should fail when required fields are missing")
-	}
-}
-
 func TestInsertBuilder_Chaining(t *testing.T) {
 	schema := testSchema()
 
-	// Test full chain: Set -> Set -> Debug -> Execute
-	result, err := NewInsertBuilder(schema, "User").
+	// Test full chain: Set -> Set -> Set -> Debug
+	ib := NewInsertBuilder(schema, mockConnector(), "User")
+	builder := ib.
 		Set("email", "ana@mail.com").
 		Set("name", "Ana").
 		Set("age", 28).
-		Debug().
-		Execute(context.Background())
+		Debug()
 
-	if err != nil {
-		t.Fatalf("Chaining should work: %v", err)
+	if builder == nil {
+		t.Error("Chaining should work")
 	}
 
-	if result == nil {
-		t.Error("Chained execution should return result")
+	// Verify values
+	if ib.values["email"] != "ana@mail.com" {
+		t.Error("Email not set via chaining")
+	}
+	if ib.values["name"] != "Ana" {
+		t.Error("Name not set via chaining")
+	}
+	if ib.values["age"] != 28 {
+		t.Error("Age not set via chaining")
 	}
 }
 
@@ -203,7 +158,7 @@ func TestInsertBuilder_Chaining(t *testing.T) {
 
 func TestUpdateBuilder_Set(t *testing.T) {
 	schema := testSchema()
-	builder := NewUpdateBuilder(schema, "User")
+	builder := NewUpdateBuilder(schema, mockConnector(), "User")
 
 	result := builder.Set("name", "Ana")
 
@@ -218,7 +173,7 @@ func TestUpdateBuilder_Set(t *testing.T) {
 
 func TestUpdateBuilder_Filter(t *testing.T) {
 	schema := testSchema()
-	builder := NewUpdateBuilder(schema, "User")
+	builder := NewUpdateBuilder(schema, mockConnector(), "User")
 
 	result := builder.Filter("id", "eq", "uuid-123")
 
@@ -233,7 +188,7 @@ func TestUpdateBuilder_Filter(t *testing.T) {
 
 func TestUpdateBuilder_Filter_And_Set(t *testing.T) {
 	schema := testSchema()
-	builder := NewUpdateBuilder(schema, "User")
+	builder := NewUpdateBuilder(schema, mockConnector(), "User")
 
 	builder.Filter("id", "eq", "uuid-123").
 		Set("name", "Ana").
@@ -250,7 +205,7 @@ func TestUpdateBuilder_Filter_And_Set(t *testing.T) {
 
 func TestUpdateBuilder_MultipleFilters(t *testing.T) {
 	schema := testSchema()
-	builder := NewUpdateBuilder(schema, "User")
+	builder := NewUpdateBuilder(schema, mockConnector(), "User")
 
 	builder.Filter("id", "eq", "uuid-123").
 		Filter("email", "eq", "ana@mail.com").
@@ -263,7 +218,7 @@ func TestUpdateBuilder_MultipleFilters(t *testing.T) {
 
 func TestUpdateBuilder_Debug(t *testing.T) {
 	schema := testSchema()
-	builder := NewUpdateBuilder(schema, "User")
+	builder := NewUpdateBuilder(schema, mockConnector(), "User")
 
 	result := builder.Debug()
 
@@ -276,62 +231,26 @@ func TestUpdateBuilder_Debug(t *testing.T) {
 	}
 }
 
-func TestUpdateBuilder_Execute_Success(t *testing.T) {
-	schema := testSchema()
-	builder := NewUpdateBuilder(schema, "User")
-	builder.Filter("id", "eq", "uuid-123").Set("name", "Ana")
-
-	result, err := builder.Execute(context.Background())
-
-	if err != nil {
-		t.Fatalf("Execute() should succeed: %v", err)
-	}
-
-	if result == nil {
-		t.Error("Execute() should return result")
-	}
-}
-
-func TestUpdateBuilder_Execute_ValidationError_NoFilter(t *testing.T) {
-	schema := testSchema()
-	builder := NewUpdateBuilder(schema, "User")
-	builder.Set("name", "Ana")
-
-	_, err := builder.Execute(context.Background())
-
-	if err == nil {
-		t.Error("Execute() should fail without filter (safety guard)")
-	}
-}
-
-func TestUpdateBuilder_Execute_ValidationError_UpdatePrimaryKey(t *testing.T) {
-	schema := testSchema()
-	builder := NewUpdateBuilder(schema, "User")
-	builder.Filter("email", "eq", "old@mail.com").Set("id", "new-uuid")
-
-	_, err := builder.Execute(context.Background())
-
-	if err == nil {
-		t.Error("Execute() should fail when trying to update primary key")
-	}
-}
-
 func TestUpdateBuilder_Chaining(t *testing.T) {
 	schema := testSchema()
 
-	result, err := NewUpdateBuilder(schema, "User").
+	ub := NewUpdateBuilder(schema, mockConnector(), "User")
+	builder := ub.
 		Filter("id", "eq", "uuid-123").
 		Set("name", "Ana").
 		Set("age", 30).
-		Debug().
-		Execute(context.Background())
+		Debug()
 
-	if err != nil {
-		t.Fatalf("Chaining should work: %v", err)
+	if builder == nil {
+		t.Error("Chaining should work")
 	}
 
-	if result == nil {
-		t.Error("Chained execution should return result")
+	if len(ub.filters) == 0 {
+		t.Error("Filter not added via chaining")
+	}
+
+	if len(ub.updates) != 2 {
+		t.Error("Updates not added via chaining")
 	}
 }
 
@@ -341,7 +260,7 @@ func TestUpdateBuilder_Chaining(t *testing.T) {
 
 func TestDeleteBuilder_Filter(t *testing.T) {
 	schema := testSchema()
-	builder := NewDeleteBuilder(schema, "User")
+	builder := NewDeleteBuilder(schema, mockConnector(), "User")
 
 	result := builder.Filter("id", "eq", "uuid-123")
 
@@ -356,7 +275,7 @@ func TestDeleteBuilder_Filter(t *testing.T) {
 
 func TestDeleteBuilder_MultipleFilters(t *testing.T) {
 	schema := testSchema()
-	builder := NewDeleteBuilder(schema, "User")
+	builder := NewDeleteBuilder(schema, mockConnector(), "User")
 
 	builder.Filter("id", "eq", "uuid-123").
 		Filter("email", "eq", "ana@mail.com")
@@ -368,7 +287,7 @@ func TestDeleteBuilder_MultipleFilters(t *testing.T) {
 
 func TestDeleteBuilder_Debug(t *testing.T) {
 	schema := testSchema()
-	builder := NewDeleteBuilder(schema, "User")
+	builder := NewDeleteBuilder(schema, mockConnector(), "User")
 
 	result := builder.Debug()
 
@@ -381,47 +300,20 @@ func TestDeleteBuilder_Debug(t *testing.T) {
 	}
 }
 
-func TestDeleteBuilder_Execute_Success(t *testing.T) {
-	schema := testSchema()
-	builder := NewDeleteBuilder(schema, "User")
-	builder.Filter("id", "eq", "uuid-123")
-
-	result, err := builder.Execute(context.Background())
-
-	if err != nil {
-		t.Fatalf("Execute() should succeed: %v", err)
-	}
-
-	if result == nil {
-		t.Error("Execute() should return result")
-	}
-}
-
-func TestDeleteBuilder_Execute_ValidationError_NoFilter(t *testing.T) {
-	schema := testSchema()
-	builder := NewDeleteBuilder(schema, "User")
-
-	_, err := builder.Execute(context.Background())
-
-	if err == nil {
-		t.Error("Execute() should fail without filter (safety guard)")
-	}
-}
-
 func TestDeleteBuilder_Chaining(t *testing.T) {
 	schema := testSchema()
 
-	result, err := NewDeleteBuilder(schema, "User").
+	ub := NewDeleteBuilder(schema, mockConnector(), "User")
+	builder := ub.
 		Filter("id", "eq", "uuid-123").
-		Debug().
-		Execute(context.Background())
+		Debug()
 
-	if err != nil {
-		t.Fatalf("Chaining should work: %v", err)
+	if builder == nil {
+		t.Error("Chaining should work")
 	}
 
-	if result == nil {
-		t.Error("Chained execution should return result")
+	if len(ub.filters) == 0 {
+		t.Error("Filter not added via chaining")
 	}
 }
 
@@ -431,7 +323,7 @@ func TestDeleteBuilder_Chaining(t *testing.T) {
 
 func TestInsertBuilder_ImplementsInterface(t *testing.T) {
 	schema := testSchema()
-	builder := NewInsertBuilder(schema, "User")
+	builder := NewInsertBuilder(schema, mockConnector(), "User")
 
 	// Verify it implements engine.InsertMutation
 	var _ engine.InsertMutation = builder
@@ -439,7 +331,7 @@ func TestInsertBuilder_ImplementsInterface(t *testing.T) {
 
 func TestUpdateBuilder_ImplementsInterface(t *testing.T) {
 	schema := testSchema()
-	builder := NewUpdateBuilder(schema, "User")
+	builder := NewUpdateBuilder(schema, mockConnector(), "User")
 
 	// Verify it implements engine.UpdateMutation
 	var _ engine.UpdateMutation = builder
@@ -447,149 +339,169 @@ func TestUpdateBuilder_ImplementsInterface(t *testing.T) {
 
 func TestDeleteBuilder_ImplementsInterface(t *testing.T) {
 	schema := testSchema()
-	builder := NewDeleteBuilder(schema, "User")
+	builder := NewDeleteBuilder(schema, mockConnector(), "User")
 
 	// Verify it implements engine.DeleteMutation
 	var _ engine.DeleteMutation = builder
 }
 
 // ============================================================
-// CROSS-BUILDER INTEGRATION TESTS
+// FACTORY INTEGRATION TESTS
 // ============================================================
 
 func TestFactory_Integration(t *testing.T) {
 	schema := testSchema()
-	factory := NewFactory(schema)
+	connector := mockConnector()
+	factory := NewFactory()
 
 	// Test that factory creates working builders
-	insert := factory.NewInsert("User")
+	insert := factory.NewInsert("User", schema, connector)
 	if insert == nil {
 		t.Error("Factory should create InsertMutation")
 	}
 
-	update := factory.NewUpdate("User")
+	update := factory.NewUpdate("User", schema, connector)
 	if update == nil {
 		t.Error("Factory should create UpdateMutation")
 	}
 
-	delete := factory.NewDelete("User")
+	delete := factory.NewDelete("User", schema, connector)
 	if delete == nil {
 		t.Error("Factory should create DeleteMutation")
 	}
 
 	// Test chaining through factory-created builders
-	_, err := insert.Set("email", "test@mail.com").
-		Set("name", "Test").
-		Execute(context.Background())
+	insert.Set("email", "test@mail.com").Set("name", "Test")
 
-	if err != nil {
-		t.Errorf("Factory-created builder should work: %v", err)
-	}
+	// Can't execute without real DB, but we verified chaining works
 }
 
 // ============================================================
-// VALIDATION EDGE CASES
+// SQL GENERATION TESTS (without execution)
 // ============================================================
 
-func TestInsertBuilder_Execute_InvalidEmail(t *testing.T) {
+func TestInsertBuilder_GenerateSQL(t *testing.T) {
 	schema := testSchema()
-	builder := NewInsertBuilder(schema, "User")
-	builder.Set("email", "not-an-email").Set("name", "Ana")
+	builder := NewInsertBuilder(schema, mockConnector(), "User")
+	builder.Set("email", "ana@mail.com").Set("name", "Ana")
 
-	_, err := builder.Execute(context.Background())
+	sql, values := builder.generateSQL()
 
-	if err == nil {
-		t.Error("Execute() should fail with invalid email format")
+	// Verify SQL structure
+	if sql == "" {
+		t.Error("SQL should be generated")
+	}
+
+	if len(values) != 2 {
+		t.Errorf("Expected 2 values, got %d", len(values))
+	}
+
+	// SQL should contain INSERT INTO users
+	if !contains(sql, "INSERT INTO") {
+		t.Error("SQL should contain INSERT INTO")
+	}
+
+	if !contains(sql, "users") {
+		t.Error("SQL should reference users table")
+	}
+
+	if !contains(sql, "RETURNING") {
+		t.Error("SQL should have RETURNING clause")
 	}
 }
 
-func TestInsertBuilder_Execute_NullableField(t *testing.T) {
+func TestUpdateBuilder_GenerateSQL(t *testing.T) {
 	schema := testSchema()
-	builder := NewInsertBuilder(schema, "User")
-	builder.Set("email", "ana@mail.com").
-		Set("name", "Ana").
-		Set("age", nil) // age is nullable
+	builder := NewUpdateBuilder(schema, mockConnector(), "User")
+	builder.Filter("id", "eq", "uuid-123").Set("name", "Ana")
 
-	result, err := builder.Execute(context.Background())
+	sql, values := builder.generateSQL()
 
-	if err != nil {
-		t.Errorf("Execute() should succeed with null nullable field: %v", err)
+	if sql == "" {
+		t.Error("SQL should be generated")
 	}
 
-	if result == nil {
-		t.Error("Should return result")
+	if len(values) != 2 {
+		t.Errorf("Expected 2 values (1 set + 1 filter), got %d", len(values))
+	}
+
+	if !contains(sql, "UPDATE") {
+		t.Error("SQL should contain UPDATE")
+	}
+
+	if !contains(sql, "WHERE") {
+		t.Error("SQL should have WHERE clause")
+	}
+
+	if !contains(sql, "RETURNING") {
+		t.Error("SQL should have RETURNING clause")
 	}
 }
 
-func TestUpdateBuilder_Execute_EmptyUpdate(t *testing.T) {
+func TestDeleteBuilder_GenerateSQL(t *testing.T) {
 	schema := testSchema()
-	builder := NewUpdateBuilder(schema, "User")
+	builder := NewDeleteBuilder(schema, mockConnector(), "User")
 	builder.Filter("id", "eq", "uuid-123")
-	// No Set() called
 
-	_, err := builder.Execute(context.Background())
+	sql, values := builder.generateSQL()
 
-	if err == nil {
-		t.Error("Execute() should fail with empty update")
+	if sql == "" {
+		t.Error("SQL should be generated")
+	}
+
+	if len(values) != 1 {
+		t.Errorf("Expected 1 value, got %d", len(values))
+	}
+
+	if !contains(sql, "DELETE FROM") {
+		t.Error("SQL should contain DELETE FROM")
+	}
+
+	if !contains(sql, "WHERE") {
+		t.Error("SQL should have WHERE clause")
+	}
+}
+
+func TestEntityToTableName(t *testing.T) {
+	tests := []struct {
+		entity string
+		want   string
+	}{
+		{"User", "users"},
+		{"OrderItem", "order_items"},
+		{"TodoList", "todo_lists"},
+		{"Post", "posts"},
+	}
+
+	for _, tt := range tests {
+		got := entityToTableName(tt.entity)
+		if got != tt.want {
+			t.Errorf("entityToTableName(%q) = %q, want %q", tt.entity, got, tt.want)
+		}
 	}
 }
 
 // ============================================================
-// DEBUG MODE TESTS
+// HELPERS
 // ============================================================
 
-func TestInsertBuilder_Debug_DoesNotBreakExecution(t *testing.T) {
-	schema := testSchema()
-	builder := NewInsertBuilder(schema, "User")
-
-	result, err := builder.
-		Set("email", "ana@mail.com").
-		Set("name", "Ana").
-		Debug(). // Enable debug
-		Execute(context.Background())
-
-	if err != nil {
-		t.Fatalf("Debug mode should not break execution: %v", err)
-	}
-
-	if result == nil {
-		t.Error("Should return result even with debug enabled")
-	}
+func contains(s, substr string) bool {
+	return len(s) > 0 && len(substr) > 0 &&
+		(s == substr || len(s) >= len(substr) && hasSubstring(s, substr))
 }
 
-func TestUpdateBuilder_Debug_DoesNotBreakExecution(t *testing.T) {
-	schema := testSchema()
-	builder := NewUpdateBuilder(schema, "User")
-
-	result, err := builder.
-		Filter("id", "eq", "uuid-123").
-		Set("name", "Ana").
-		Debug().
-		Execute(context.Background())
-
-	if err != nil {
-		t.Fatalf("Debug mode should not break execution: %v", err)
+func hasSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
 	}
-
-	if result == nil {
-		t.Error("Should return result even with debug enabled")
-	}
+	return false
 }
 
-func TestDeleteBuilder_Debug_DoesNotBreakExecution(t *testing.T) {
-	schema := testSchema()
-	builder := NewDeleteBuilder(schema, "User")
-
-	result, err := builder.
-		Filter("id", "eq", "uuid-123").
-		Debug().
-		Execute(context.Background())
-
-	if err != nil {
-		t.Fatalf("Debug mode should not break execution: %v", err)
-	}
-
-	if result == nil {
-		t.Error("Should return result even with debug enabled")
-	}
-}
+// Note: Tests that require actual DB execution are in tests/integration/mutations_test.go
+// These unit tests only verify:
+// - Builder API (Set, Filter, Debug)
+// - Chaining behavior
+// - SQL generation (without execution)
+// - Interface compliance

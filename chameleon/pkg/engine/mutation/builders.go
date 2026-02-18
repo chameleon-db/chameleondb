@@ -14,22 +14,23 @@ import (
 // ============================================================
 
 type InsertBuilder struct {
-	schema *engine.Schema
-	entity string
-	values map[string]interface{}
-	config engine.ValidatorConfig
+	schema    *engine.Schema
+	connector *engine.Connector
+	entity    string
+	values    map[string]interface{}
+	config    engine.ValidatorConfig
 
-	// Debug settings (inherited from engine or per-mutation)
+	// Debug settings
 	debugLevel *engine.DebugLevel
-	debugCtx   *engine.DebugContext
 }
 
-func NewInsertBuilder(schema *engine.Schema, entity string) *InsertBuilder {
+func NewInsertBuilder(schema *engine.Schema, connector *engine.Connector, entity string) *InsertBuilder {
 	return &InsertBuilder{
-		schema: schema,
-		entity: entity,
-		values: make(map[string]interface{}),
-		config: engine.DefaultValidatorConfig(),
+		schema:    schema,
+		connector: connector,
+		entity:    entity,
+		values:    make(map[string]interface{}),
+		config:    engine.DefaultValidatorConfig(),
 	}
 }
 
@@ -57,28 +58,71 @@ func (ib *InsertBuilder) Execute(ctx context.Context) (*engine.InsertResult, err
 	}
 
 	// Generate SQL
-	sql := ib.generateSQL()
+	sql, orderedValues := ib.generateSQL()
 
 	// Debug output
 	if ib.shouldDebug() {
-		ib.logSQL(sql)
+		fmt.Printf("\n[SQL] INSERT INTO %s\n%s\n", ib.entity, sql)
+		fmt.Printf("[VALUES] %v\n\n", orderedValues)
 	}
 
-	// TODO: Execute via connector/executor
-	// For now, return success without actual execution
+	// Execute via pgx
+	rows, err := ib.connector.Pool().Query(ctx, sql, orderedValues...)
+	if err != nil {
+		return nil, fmt.Errorf("insert failed: %w", err)
+	}
+	defer rows.Close()
+
+	// Parse RETURNING *
+	var result *engine.InsertResult
+	if rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan result: %w", err)
+		}
+
+		// Build record map
+		record := make(map[string]interface{})
+		columns := rows.FieldDescriptions()
+		for i, col := range columns {
+			record[col.Name] = values[i]
+		}
+
+		// Extract ID (assuming first column or field named "id")
+		var id interface{}
+		if len(values) > 0 {
+			id = values[0] // First column is typically the PK
+			// Try to find "id" field specifically
+			for i, col := range columns {
+				if col.Name == "id" {
+					id = values[i]
+					break
+				}
+			}
+		}
+
+		result = &engine.InsertResult{
+			ID:       id,
+			Record:   record,
+			Affected: 1,
+		}
+	} else {
+		// No rows returned (shouldn't happen with RETURNING *)
+		result = &engine.InsertResult{
+			ID:       nil,
+			Record:   nil,
+			Affected: 1,
+		}
+	}
 
 	duration := time.Since(start)
 
 	// Debug trace
 	if ib.shouldTrace() {
-		ib.logTrace("INSERT", duration, 1)
+		fmt.Printf("[TRACE] INSERT on %s: %v, 1 row\n", ib.entity, duration)
 	}
 
-	return &engine.InsertResult{
-		ID:       nil, // Will be filled by actual executor
-		Record:   nil, // Will be filled by actual executor
-		Affected: 1,
-	}, nil
+	return result, nil
 }
 
 func (ib *InsertBuilder) shouldDebug() bool {
@@ -95,33 +139,63 @@ func (ib *InsertBuilder) shouldTrace() bool {
 	return false
 }
 
-func (ib *InsertBuilder) logSQL(sql string) {
-	fmt.Printf("\n[SQL] INSERT INTO %s\n%s\n\n", ib.entity, sql)
-}
+func (ib *InsertBuilder) generateSQL() (string, []interface{}) {
+	// Get entity definition for table name
+	ent := ib.schema.GetEntity(ib.entity)
+	if ent == nil {
+		// Fallback: simple lowercase + "s"
+		return ib.generateSQLFallback()
+	}
 
-func (ib *InsertBuilder) logTrace(operation string, duration time.Duration, affected int) {
-	fmt.Printf("[TRACE] %s on %s: %v, %d rows\n", operation, ib.entity, duration, affected)
-}
+	// Use entity table name (handles pluralization correctly)
+	tableName := entityToTableName(ib.entity)
 
-func (ib *InsertBuilder) generateSQL() string {
 	var fields []string
 	var placeholders []string
+	var values []interface{}
+	i := 1
+
+	// Maintain order for placeholders
+	for field := range ib.values {
+		fields = append(fields, field)
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i))
+		values = append(values, ib.values[field])
+		i++
+	}
+
+	sql := fmt.Sprintf(
+		"INSERT INTO %s (%s) VALUES (%s) RETURNING *",
+		tableName,
+		strings.Join(fields, ", "),
+		strings.Join(placeholders, ", "),
+	)
+
+	return sql, values
+}
+
+func (ib *InsertBuilder) generateSQLFallback() (string, []interface{}) {
+	tableName := strings.ToLower(ib.entity) + "s"
+
+	var fields []string
+	var placeholders []string
+	var values []interface{}
 	i := 1
 
 	for field := range ib.values {
 		fields = append(fields, field)
 		placeholders = append(placeholders, fmt.Sprintf("$%d", i))
+		values = append(values, ib.values[field])
 		i++
 	}
 
-	table := strings.ToLower(ib.entity) + "s" // Simple pluralization
-
-	return fmt.Sprintf(
+	sql := fmt.Sprintf(
 		"INSERT INTO %s (%s) VALUES (%s) RETURNING *",
-		table,
+		tableName,
 		strings.Join(fields, ", "),
 		strings.Join(placeholders, ", "),
 	)
+
+	return sql, values
 }
 
 // ============================================================
@@ -129,23 +203,26 @@ func (ib *InsertBuilder) generateSQL() string {
 // ============================================================
 
 type UpdateBuilder struct {
-	schema  *engine.Schema
-	entity  string
-	filters map[string]interface{}
-	updates map[string]interface{}
-	config  engine.ValidatorConfig
+	schema    *engine.Schema
+	connector *engine.Connector
+	entity    string
+	filters   map[string]interface{}
+	updates   map[string]interface{}
+	config    engine.ValidatorConfig
 
 	// Debug settings
 	debugLevel *engine.DebugLevel
+	forceAll   bool
 }
 
-func NewUpdateBuilder(schema *engine.Schema, entity string) *UpdateBuilder {
+func NewUpdateBuilder(schema *engine.Schema, connector *engine.Connector, entity string) *UpdateBuilder {
 	return &UpdateBuilder{
-		schema:  schema,
-		entity:  entity,
-		filters: make(map[string]interface{}),
-		updates: make(map[string]interface{}),
-		config:  engine.DefaultValidatorConfig(),
+		schema:    schema,
+		connector: connector,
+		entity:    entity,
+		filters:   make(map[string]interface{}),
+		updates:   make(map[string]interface{}),
+		config:    engine.DefaultValidatorConfig(),
 	}
 }
 
@@ -184,24 +261,48 @@ func (ub *UpdateBuilder) Execute(ctx context.Context) (*engine.UpdateResult, err
 	}
 
 	// Generate SQL
-	sql := ub.generateSQL()
+	sql, orderedValues := ub.generateSQL()
 
 	// Debug output
 	if ub.shouldDebug() {
-		fmt.Printf("\n[SQL] UPDATE %s\n%s\n\n", ub.entity, sql)
+		fmt.Printf("\n[SQL] UPDATE %s\n%s\n", ub.entity, sql)
+		fmt.Printf("[VALUES] %v\n\n", orderedValues)
 	}
 
-	// TODO: Execute via connector/executor
+	// Execute via pgx
+	rows, err := ub.connector.Pool().Query(ctx, sql, orderedValues...)
+	if err != nil {
+		return nil, fmt.Errorf("update failed: %w", err)
+	}
+	defer rows.Close()
+
+	// Parse RETURNING * (all updated rows)
+	var records []map[string]interface{}
+	columns := rows.FieldDescriptions()
+
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan result: %w", err)
+		}
+
+		record := make(map[string]interface{})
+		for i, col := range columns {
+			record[col.Name] = values[i]
+		}
+		records = append(records, record)
+	}
 
 	duration := time.Since(start)
 
+	// Debug trace
 	if ub.shouldTrace() {
-		fmt.Printf("[TRACE] UPDATE on %s: %v, %d rows\n", ub.entity, duration, 0)
+		fmt.Printf("[TRACE] UPDATE on %s: %v, %d rows\n", ub.entity, duration, len(records))
 	}
 
 	return &engine.UpdateResult{
-		Records:  nil,
-		Affected: 0,
+		Records:  records,
+		Affected: len(records),
 	}, nil
 }
 
@@ -219,30 +320,39 @@ func (ub *UpdateBuilder) shouldTrace() bool {
 	return false
 }
 
-func (ub *UpdateBuilder) generateSQL() string {
+func (ub *UpdateBuilder) generateSQL() (string, []interface{}) {
+	tableName := entityToTableName(ub.entity)
+
 	var setClauses []string
-	i := 1
+	var values []interface{}
+	paramIndex := 1
 
-	for field := range ub.updates {
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", field, i))
-		i++
+	// SET clauses
+	for field, value := range ub.updates {
+		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", field, paramIndex))
+		values = append(values, value)
+		paramIndex++
 	}
 
-	var filterClauses []string
-	for field := range ub.filters {
-		fieldName := strings.Split(field, ":")[0]
-		filterClauses = append(filterClauses, fmt.Sprintf("%s = $%d", fieldName, i))
-		i++
+	// WHERE clauses
+	var whereClauses []string
+	for filterKey, value := range ub.filters {
+		parts := strings.Split(filterKey, ":")
+		field := parts[0]
+		// For now, only support "eq" operator
+		whereClauses = append(whereClauses, fmt.Sprintf("%s = $%d", field, paramIndex))
+		values = append(values, value)
+		paramIndex++
 	}
 
-	table := strings.ToLower(ub.entity) + "s"
-
-	return fmt.Sprintf(
+	sql := fmt.Sprintf(
 		"UPDATE %s SET %s WHERE %s RETURNING *",
-		table,
+		tableName,
 		strings.Join(setClauses, ", "),
-		strings.Join(filterClauses, " AND "),
+		strings.Join(whereClauses, " AND "),
 	)
+
+	return sql, values
 }
 
 func (ub *UpdateBuilder) parseFilters() map[string]interface{} {
@@ -262,6 +372,7 @@ func (ub *UpdateBuilder) parseFilters() map[string]interface{} {
 
 type DeleteBuilder struct {
 	schema         *engine.Schema
+	connector      *engine.Connector
 	entity         string
 	filters        map[string]interface{}
 	config         engine.ValidatorConfig
@@ -271,12 +382,13 @@ type DeleteBuilder struct {
 	debugLevel *engine.DebugLevel
 }
 
-func NewDeleteBuilder(schema *engine.Schema, entity string) *DeleteBuilder {
+func NewDeleteBuilder(schema *engine.Schema, connector *engine.Connector, entity string) *DeleteBuilder {
 	return &DeleteBuilder{
-		schema:  schema,
-		entity:  entity,
-		filters: make(map[string]interface{}),
-		config:  engine.DefaultValidatorConfig(),
+		schema:    schema,
+		connector: connector,
+		entity:    entity,
+		filters:   make(map[string]interface{}),
+		config:    engine.DefaultValidatorConfig(),
 	}
 }
 
@@ -309,23 +421,31 @@ func (db *DeleteBuilder) Execute(ctx context.Context) (*engine.DeleteResult, err
 	}
 
 	// Generate SQL
-	sql := db.generateSQL()
+	sql, orderedValues := db.generateSQL()
 
 	// Debug output
 	if db.shouldDebug() {
-		fmt.Printf("\n[SQL] DELETE FROM %s\n%s\n\n", db.entity, sql)
+		fmt.Printf("\n[SQL] DELETE FROM %s\n%s\n", db.entity, sql)
+		fmt.Printf("[VALUES] %v\n\n", orderedValues)
 	}
 
-	// TODO: Execute via connector/executor
+	// Execute via pgx
+	commandTag, err := db.connector.Pool().Exec(ctx, sql, orderedValues...)
+	if err != nil {
+		return nil, fmt.Errorf("delete failed: %w", err)
+	}
+
+	affected := int(commandTag.RowsAffected())
 
 	duration := time.Since(start)
 
+	// Debug trace
 	if db.shouldTrace() {
-		fmt.Printf("[TRACE] DELETE on %s: %v, %d rows\n", db.entity, duration, 0)
+		fmt.Printf("[TRACE] DELETE on %s: %v, %d rows\n", db.entity, duration, affected)
 	}
 
 	return &engine.DeleteResult{
-		Affected: 0,
+		Affected: affected,
 	}, nil
 }
 
@@ -343,27 +463,28 @@ func (db *DeleteBuilder) shouldTrace() bool {
 	return false
 }
 
-func (db *DeleteBuilder) generateSQL() string {
-	var filterClauses []string
-	i := 1
+func (db *DeleteBuilder) generateSQL() (string, []interface{}) {
+	tableName := entityToTableName(db.entity)
 
-	for field := range db.filters {
-		fieldName := strings.Split(field, ":")[0]
-		filterClauses = append(filterClauses, fmt.Sprintf("%s = $%d", fieldName, i))
-		i++
+	var whereClauses []string
+	var values []interface{}
+	paramIndex := 1
+
+	for filterKey, value := range db.filters {
+		parts := strings.Split(filterKey, ":")
+		field := parts[0]
+		whereClauses = append(whereClauses, fmt.Sprintf("%s = $%d", field, paramIndex))
+		values = append(values, value)
+		paramIndex++
 	}
 
-	table := strings.ToLower(db.entity) + "s"
-
-	if len(filterClauses) == 0 {
-		return fmt.Sprintf("DELETE FROM %s", table)
-	}
-
-	return fmt.Sprintf(
+	sql := fmt.Sprintf(
 		"DELETE FROM %s WHERE %s",
-		table,
-		strings.Join(filterClauses, " AND "),
+		tableName,
+		strings.Join(whereClauses, " AND "),
 	)
+
+	return sql, values
 }
 
 func (db *DeleteBuilder) parseFilters() map[string]interface{} {
@@ -375,4 +496,39 @@ func (db *DeleteBuilder) parseFilters() map[string]interface{} {
 		}
 	}
 	return result
+}
+
+// ============================================================
+// UTILITIES
+// ============================================================
+
+// entityToTableName converts entity name to table name
+// Handles pluralization and snake_case conversion
+//
+// Examples:
+//
+//	User → users
+//	OrderItem → order_items
+//	TodoList → todo_lists
+func entityToTableName(entity string) string {
+	// TODO: Use FFI call to Rust for proper naming
+	// For now, simple implementation:
+
+	// Convert PascalCase to snake_case
+	var result []rune
+	for i, r := range entity {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			result = append(result, '_')
+		}
+		result = append(result, r)
+	}
+
+	name := strings.ToLower(string(result))
+
+	// Simple pluralization
+	if !strings.HasSuffix(name, "s") {
+		name += "s"
+	}
+
+	return name
 }

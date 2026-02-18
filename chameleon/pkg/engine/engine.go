@@ -19,9 +19,6 @@ type Engine struct {
 
 	// Debug context
 	Debug *DebugContext
-
-	// Mutation factory (abstract, injected)
-	mutations MutationFactory
 }
 
 func (e *Engine) Schema() *Schema {
@@ -36,7 +33,6 @@ func (e *Engine) Schema() *Schema {
 //
 // Default behavior:
 //   - Loads schema from "schema.cham" if it exists
-//   - Auto-initializes mutation factory
 //   - Ready to use immediately
 //
 // If "schema.cham" doesn't exist, returns engine without schema
@@ -46,14 +42,6 @@ func NewEngine() *Engine {
 }
 
 // NewEngineWithSchema creates and initializes engine with a specific schema file
-//
-// Usage:
-//
-//	engine, err := engine.NewEngineWithSchema("path/to/my_schema.cham")
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	result := engine.Insert("User").Set("email", "ana@mail.com").Execute(ctx)
 func NewEngineWithSchema(schemaPath string) (*Engine, error) {
 	eng := newEngineWithPath(schemaPath)
 
@@ -70,7 +58,6 @@ func NewEngineWithSchema(schemaPath string) (*Engine, error) {
 }
 
 // NewEngineWithoutSchema creates an engine without loading a schema
-// User must call LoadSchemaFromFile or LoadSchemaFromString manually
 func NewEngineWithoutSchema() *Engine {
 	return &Engine{
 		Debug: DefaultDebugContext(),
@@ -85,10 +72,7 @@ func newEngineWithPath(schemaPath string) *Engine {
 
 	// Try to load schema silently (don't fail if missing)
 	if _, err := os.Stat(schemaPath); err == nil {
-		if _, err := eng.LoadSchemaFromFile(schemaPath); err == nil {
-			// Initialize mutation factory after schema load
-			//eng.SetMutationFactory(mutation.NewFactory(schema))
-		}
+		eng.LoadSchemaFromFile(schemaPath)
 	}
 
 	return eng
@@ -107,7 +91,6 @@ func (e *Engine) WithDebug(level DebugLevel) *Engine {
 // ─────────────────────────────────────────────────────────────
 // Schema handling
 // ─────────────────────────────────────────────────────────────
-//
 
 // LoadSchemaFromString parses a schema from a string
 func (e *Engine) LoadSchemaFromString(input string) (*Schema, error) {
@@ -140,11 +123,9 @@ func (e *Engine) GetSchema() *Schema {
 	return e.schema
 }
 
-//
 // ─────────────────────────────────────────────────────────────
 // Connection handling
 // ─────────────────────────────────────────────────────────────
-//
 
 // Version returns the engine version
 func (e *Engine) Version() string {
@@ -158,6 +139,10 @@ func (e *Engine) Connect(ctx context.Context, config ConnectorConfig) error {
 		return err
 	}
 	e.executor = NewExecutor(e.connector)
+
+	// Mutation factory is auto-registered via init() in mutation package
+	// No need to do anything here - registry handles it
+
 	return nil
 }
 
@@ -181,11 +166,14 @@ func (e *Engine) Ping(ctx context.Context) error {
 	return e.connector.Ping(ctx)
 }
 
-//
+// Connector returns the underlying connector for raw SQL access
+func (e *Engine) Connector() *Connector {
+	return e.connector
+}
+
 // ─────────────────────────────────────────────────────────────
 // Migrations
 // ─────────────────────────────────────────────────────────────
-//
 
 // GenerateMigration generates DDL SQL from the loaded schema
 func (e *Engine) GenerateMigration() (string, error) {
@@ -202,46 +190,38 @@ func (e *Engine) GenerateMigration() (string, error) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Mutation wiring (NO concrete dependencies)
+// Mutation API (uses registry pattern)
 // ─────────────────────────────────────────────────────────────
-
-// SetMutationFactory injects a mutation factory implementation
-func (e *Engine) SetMutationFactory(factory MutationFactory) {
-	e.mutations = factory
-}
-
-func (e *Engine) ensureMutationFactory() {
-	if e.mutations == nil {
-		panic(
-			"mutation factory not initialized\n" +
-				"Call mutation.InitFactory(engine) after loading schema",
-		)
-	}
-}
 
 // Insert starts a new INSERT mutation
 func (e *Engine) Insert(entity string) InsertMutation {
 	e.ensureSchemaLoaded()
-	e.ensureMutationFactory()
-	return e.mutations.NewInsert(entity)
+	e.ensureConnected()
+
+	factory := getMutationFactory()
+	return factory.NewInsert(entity, e.schema, e.connector)
 }
 
 // Update starts a new UPDATE mutation
 func (e *Engine) Update(entity string) UpdateMutation {
 	e.ensureSchemaLoaded()
-	e.ensureMutationFactory()
-	return e.mutations.NewUpdate(entity)
+	e.ensureConnected()
+
+	factory := getMutationFactory()
+	return factory.NewUpdate(entity, e.schema, e.connector)
 }
 
 // Delete starts a new DELETE mutation
 func (e *Engine) Delete(entity string) DeleteMutation {
 	e.ensureSchemaLoaded()
-	e.ensureMutationFactory()
-	return e.mutations.NewDelete(entity)
+	e.ensureConnected()
+
+	factory := getMutationFactory()
+	return factory.NewDelete(entity, e.schema, e.connector)
 }
 
 // ─────────────────────────────────────────────────────────────
-// Schema helpers
+// Helpers
 // ─────────────────────────────────────────────────────────────
 
 // GetEntity returns an entity by name, or nil if not found
@@ -256,6 +236,12 @@ func (s *Schema) GetEntity(name string) *Entity {
 
 func (e *Engine) ensureSchemaLoaded() {
 	if e.schema == nil {
-		panic("schema not loaded")
+		panic("schema not loaded - call LoadSchemaFromFile first")
+	}
+}
+
+func (e *Engine) ensureConnected() {
+	if e.connector == nil {
+		panic("not connected - call Connect() first")
 	}
 }

@@ -2,25 +2,25 @@ package mutation
 
 import "github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
 
-type Factory struct {
-	schema *engine.Schema
+// Factory is STATELESS - schema and connector passed per-call
+// This allows registry pattern without import cycles
+type Factory struct{}
+
+func NewFactory() *Factory {
+	return &Factory{}
 }
 
-func NewFactory(schema *engine.Schema) *Factory {
-	return &Factory{schema: schema}
+// NewInsert creates an insert builder with provided schema and connector
+func (f *Factory) NewInsert(entity string, schema *engine.Schema, connector *engine.Connector) engine.InsertMutation {
+	return NewInsertBuilder(schema, connector, entity)
 }
 
-// NewInsert creates an insert builder
-func (f *Factory) NewInsert(entity string) engine.InsertMutation {
-	return NewInsertBuilder(f.schema, entity)
+// NewUpdate creates an update builder with provided schema and connector
+func (f *Factory) NewUpdate(entity string, schema *engine.Schema, connector *engine.Connector) engine.UpdateMutation {
+	return NewUpdateBuilder(schema, connector, entity)
 }
 
-// NewUpdate creates an update builder
-func (f *Factory) NewUpdate(entity string) engine.UpdateMutation {
-	return NewUpdateBuilder(f.schema, entity)
-}
-
-// NewDelete creates a delete builder
-func (f *Factory) NewDelete(entity string) engine.DeleteMutation {
-	return NewDeleteBuilder(f.schema, entity)
+// NewDelete creates a delete builder with provided schema and connector
+func (f *Factory) NewDelete(entity string, schema *engine.Schema, connector *engine.Connector) engine.DeleteMutation {
+	return NewDeleteBuilder(schema, connector, entity)
 }
