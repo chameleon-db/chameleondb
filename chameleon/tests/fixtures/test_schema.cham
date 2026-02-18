@@ -5,6 +5,7 @@ entity User {
     age: int nullable,
     created_at: timestamp default now(),
     orders: [Order] via user_id,
+    posts: [Post] via author_id,
 }
 
 entity Order {
@@ -23,4 +24,13 @@ entity OrderItem {
     price: decimal,
     order_id: uuid,
     order: Order,
+}
+
+entity Post {
+    id: uuid primary,
+    title: string,
+    content: string,
+    author_id: uuid,
+    author: User,
+    created_at: timestamp default now(),
 }

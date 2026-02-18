@@ -3,6 +3,7 @@ package mutation
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -69,7 +70,8 @@ func (ib *InsertBuilder) Execute(ctx context.Context) (*engine.InsertResult, err
 	// Execute via pgx
 	rows, err := ib.connector.Pool().Query(ctx, sql, orderedValues...)
 	if err != nil {
-		return nil, fmt.Errorf("insert failed: %w", err)
+		// ← CAMBIO: Map database error to ChameleonDB error
+		return nil, mapDatabaseError(err, ib.entity, "INSERT", ib.values)
 	}
 	defer rows.Close()
 
@@ -88,11 +90,10 @@ func (ib *InsertBuilder) Execute(ctx context.Context) (*engine.InsertResult, err
 			record[col.Name] = values[i]
 		}
 
-		// Extract ID (assuming first column or field named "id")
+		// Extract ID
 		var id interface{}
 		if len(values) > 0 {
-			id = values[0] // First column is typically the PK
-			// Try to find "id" field specifically
+			id = values[0]
 			for i, col := range columns {
 				if col.Name == "id" {
 					id = values[i]
@@ -107,7 +108,6 @@ func (ib *InsertBuilder) Execute(ctx context.Context) (*engine.InsertResult, err
 			Affected: 1,
 		}
 	} else {
-		// No rows returned (shouldn't happen with RETURNING *)
 		result = &engine.InsertResult{
 			ID:       nil,
 			Record:   nil,
@@ -153,14 +153,17 @@ func (ib *InsertBuilder) generateSQL() (string, []interface{}) {
 	var fields []string
 	var placeholders []string
 	var values []interface{}
-	i := 1
 
-	// Maintain order for placeholders
+	// Get field names and sort them for consistent order
 	for field := range ib.values {
 		fields = append(fields, field)
-		placeholders = append(placeholders, fmt.Sprintf("$%d", i))
+	}
+	sort.Strings(fields)
+
+	// Build placeholders and values in sorted order
+	for i, field := range fields {
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
 		values = append(values, ib.values[field])
-		i++
 	}
 
 	sql := fmt.Sprintf(
@@ -179,13 +182,17 @@ func (ib *InsertBuilder) generateSQLFallback() (string, []interface{}) {
 	var fields []string
 	var placeholders []string
 	var values []interface{}
-	i := 1
 
+	// Get field names and sort them for consistent order
 	for field := range ib.values {
 		fields = append(fields, field)
-		placeholders = append(placeholders, fmt.Sprintf("$%d", i))
+	}
+	sort.Strings(fields)
+
+	// Build placeholders and values in sorted order
+	for i, field := range fields {
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
 		values = append(values, ib.values[field])
-		i++
 	}
 
 	sql := fmt.Sprintf(
@@ -272,7 +279,8 @@ func (ub *UpdateBuilder) Execute(ctx context.Context) (*engine.UpdateResult, err
 	// Execute via pgx
 	rows, err := ub.connector.Pool().Query(ctx, sql, orderedValues...)
 	if err != nil {
-		return nil, fmt.Errorf("update failed: %w", err)
+		// ← CAMBIO: Map database error to ChameleonDB error
+		return nil, mapDatabaseError(err, ub.entity, "UPDATE", ub.updates)
 	}
 	defer rows.Close()
 
@@ -327,21 +335,33 @@ func (ub *UpdateBuilder) generateSQL() (string, []interface{}) {
 	var values []interface{}
 	paramIndex := 1
 
-	// SET clauses
-	for field, value := range ub.updates {
+	// SET clauses - sort fields for consistent order
+	var updateFields []string
+	for field := range ub.updates {
+		updateFields = append(updateFields, field)
+	}
+	sort.Strings(updateFields)
+
+	for _, field := range updateFields {
 		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", field, paramIndex))
-		values = append(values, value)
+		values = append(values, ub.updates[field])
 		paramIndex++
 	}
 
-	// WHERE clauses
+	// WHERE clauses - sort filters for consistent order
+	var whereFields []string
+	for filterKey := range ub.filters {
+		whereFields = append(whereFields, filterKey)
+	}
+	sort.Strings(whereFields)
+
 	var whereClauses []string
-	for filterKey, value := range ub.filters {
+	for _, filterKey := range whereFields {
 		parts := strings.Split(filterKey, ":")
 		field := parts[0]
 		// For now, only support "eq" operator
 		whereClauses = append(whereClauses, fmt.Sprintf("%s = $%d", field, paramIndex))
-		values = append(values, value)
+		values = append(values, ub.filters[filterKey])
 		paramIndex++
 	}
 
@@ -432,7 +452,8 @@ func (db *DeleteBuilder) Execute(ctx context.Context) (*engine.DeleteResult, err
 	// Execute via pgx
 	commandTag, err := db.connector.Pool().Exec(ctx, sql, orderedValues...)
 	if err != nil {
-		return nil, fmt.Errorf("delete failed: %w", err)
+		// ← CAMBIO: Map database error to ChameleonDB error
+		return nil, mapDatabaseError(err, db.entity, "DELETE", nil)
 	}
 
 	affected := int(commandTag.RowsAffected())
@@ -524,6 +545,11 @@ func entityToTableName(entity string) string {
 	}
 
 	name := strings.ToLower(string(result))
+
+	// Check for irregular plural
+	if plural, ok := irregularPlurals[name]; ok {
+		return plural
+	}
 
 	// Simple pluralization
 	if !strings.HasSuffix(name, "s") {

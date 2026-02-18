@@ -24,11 +24,21 @@ pub fn generate_migration(schema: &Schema) -> Result<Migration, MigrationError> 
         statements.push((entity_name.clone(), sql));
     }
 
-    // 3. Join into full script
-    let sql = statements.iter()
-        .map(|(_, stmt)| stmt.as_str())
-        .collect::<Vec<&str>>()
-        .join("\n\n");
+    // 3. Build full script with DROP statements first (in reverse order for FK safety)
+    let mut sql_parts = Vec::new();
+    
+    // Add DROP statements in reverse order (to handle FKs)
+    for entity_name in order.iter().rev() {
+        let table_name = entity_to_table(&entity_name);
+        sql_parts.push(format!("DROP TABLE IF EXISTS {} CASCADE;", table_name));
+    }
+    
+    // Add CREATE statements in order
+    for (_, stmt) in &statements {
+        sql_parts.push(stmt.clone());
+    }
+    
+    let sql = sql_parts.join("\n\n");
 
     Ok(Migration { sql, statements })
 }
