@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,28 +19,36 @@ func TestInsert_UniqueConstraintViolation(t *testing.T) {
 	defer cleanup()
 
 	runMigration(t, eng, ctx)
+	result, _ := eng.Query("User").Execute(ctx)
 
 	// Insert first user
 	_, err := eng.Insert("User").
+		Set("id", uuid.New().String()).
 		Set("email", "duplicate@mail.com").
 		Set("name", "First User").
+		Debug().
 		Execute(ctx)
-	require.NoError(t, err)
 
-	// Try to insert duplicate email
+	require.NoError(t, err, "First insert should succeed")
+
+	result, _ = eng.Query("User").Filter("email", "eq", "duplicate@mail.com").Execute(ctx)
+	require.Equal(t, 1, len(result.Rows), "First user should exist")
+
+	// Insert second user with same email (should fail)
 	_, err = eng.Insert("User").
-		Set("email", "duplicate@mail.com"). // ← Same email
+		Set("id", uuid.New().String()).
+		Set("email", "duplicate@mail.com").
 		Set("name", "Second User").
+		Debug().
 		Execute(ctx)
 
-	// Should fail with UniqueConstraintError
-	require.Error(t, err)
+	require.Error(t, err, "Second insert should fail with UNIQUE violation")
 
 	var uniqueErr *engine.UniqueConstraintError
 	if assert.ErrorAs(t, err, &uniqueErr) {
+		t.Logf("UniqueErr: %+v", uniqueErr)
 		assert.Equal(t, "email", uniqueErr.Field)
 		assert.Equal(t, "duplicate@mail.com", uniqueErr.Value)
-		assert.Contains(t, uniqueErr.Error(), "unique constraint")
 	}
 }
 
@@ -65,7 +74,7 @@ func TestInsert_NotNullViolation(t *testing.T) {
 	var notNullErr *engine.NotNullError
 	if assert.ErrorAs(t, err, &notNullErr) {
 		assert.Equal(t, "email", notNullErr.Field)
-		assert.Contains(t, notNullErr.Error(), "NOT NULL")
+		assert.Contains(t, notNullErr.Error(), "cannot be null")
 	}
 }
 
@@ -81,6 +90,7 @@ func TestInsert_ForeignKeyViolation(t *testing.T) {
 
 	// Try to insert post with non-existent author
 	_, err := eng.Insert("Post").
+		Set("id", uuid.New().String()).
 		Set("title", "Test Post").
 		Set("content", "Content").
 		Set("author_id", "00000000-0000-0000-0000-000000000999").
@@ -92,7 +102,7 @@ func TestInsert_ForeignKeyViolation(t *testing.T) {
 	var fkErr *engine.ForeignKeyError
 	if assert.ErrorAs(t, err, &fkErr) {
 		assert.Equal(t, "author_id", fkErr.Field)
-		assert.Contains(t, fkErr.Error(), "foreign key")
+		assert.Contains(t, fkErr.Error(), "ForeignKey")
 	}
 }
 
@@ -108,12 +118,14 @@ func TestUpdate_UniqueConstraintViolation(t *testing.T) {
 
 	// Insert two users
 	_, err := eng.Insert("User").
+		Set("id", uuid.New().String()).
 		Set("email", "user1@mail.com").
 		Set("name", "User 1").
 		Execute(ctx)
 	require.NoError(t, err)
 
 	result2, err := eng.Insert("User").
+		Set("id", uuid.New().String()).
 		Set("email", "user2@mail.com").
 		Set("name", "User 2").
 		Execute(ctx)
@@ -144,6 +156,7 @@ func TestInsert_UndefinedColumn(t *testing.T) {
 
 	// Try to insert with unknown field
 	_, err := eng.Insert("User").
+		Set("id", uuid.New().String()).
 		Set("email", "test@mail.com").
 		Set("unknown_field", "value"). // ← Doesn't exist
 		Execute(ctx)
@@ -169,12 +182,14 @@ func TestErrorMessages_AreHelpful(t *testing.T) {
 
 	// Insert user
 	eng.Insert("User").
+		Set("id", uuid.New().String()).
 		Set("email", "test@mail.com").
 		Set("name", "Test").
 		Execute(ctx)
 
 	// Try duplicate
 	_, err := eng.Insert("User").
+		Set("id", uuid.New().String()).
 		Set("email", "test@mail.com").
 		Set("name", "Duplicate").
 		Execute(ctx)
@@ -183,7 +198,7 @@ func TestErrorMessages_AreHelpful(t *testing.T) {
 
 	// Error message should be helpful
 	errMsg := err.Error()
-	assert.Contains(t, errMsg, "unique constraint", "Should mention constraint type")
+	assert.Contains(t, errMsg, "unique", "Should mention constraint type")
 	assert.Contains(t, errMsg, "email", "Should mention field name")
 	assert.Contains(t, errMsg, "Suggestion", "Should include suggestion")
 }

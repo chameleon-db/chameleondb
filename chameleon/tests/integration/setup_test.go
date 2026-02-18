@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/chameleon-db/chameleondb/chameleon/pkg/engine/mutation"
+
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
 	"github.com/jackc/pgx/v5"
 )

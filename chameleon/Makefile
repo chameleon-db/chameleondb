@@ -43,7 +43,7 @@ test-integration:
 	docker compose -f docker-compose.test.yml up -d
 
 	@echo "Waiting for PostgreSQL..."
-	@sleep 8
+	@sleep 5
 
 	@echo "Running integration tests..."
 	CGO_LDFLAGS="-L$(shell pwd)/../chameleon-core/target/release -lchameleon_core" \

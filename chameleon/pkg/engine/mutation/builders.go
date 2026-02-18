@@ -63,61 +63,61 @@ func (ib *InsertBuilder) Execute(ctx context.Context) (*engine.InsertResult, err
 
 	// Debug output
 	if ib.shouldDebug() {
-		fmt.Printf("\n[SQL] INSERT INTO %s\n%s\n", ib.entity, sql)
+		fmt.Printf("[ENTITY] INSERT INTO %s\n", ib.entity)
+		fmt.Printf("[SQL] %s\n", sql)
 		fmt.Printf("[VALUES] %v\n\n", orderedValues)
 	}
 
 	// Execute via pgx
 	rows, err := ib.connector.Pool().Query(ctx, sql, orderedValues...)
 	if err != nil {
-		// ← CAMBIO: Map database error to ChameleonDB error
 		return nil, mapDatabaseError(err, ib.entity, "INSERT", ib.values)
 	}
 	defer rows.Close()
 
 	// Parse RETURNING *
-	var result *engine.InsertResult
-	if rows.Next() {
-		values, err := rows.Values()
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan result: %w", err)
+	if !rows.Next() {
+		// Check for errors first
+		if err := rows.Err(); err != nil {
+			// ← AQUÍ está el error de UNIQUE violation
+			return nil, mapDatabaseError(err, ib.entity, "INSERT", ib.values)
 		}
+		// No rows and no error = problem
+		return nil, fmt.Errorf("INSERT executed but returned no rows (check required fields)")
+	}
 
-		// Build record map
-		record := make(map[string]interface{})
-		columns := rows.FieldDescriptions()
+	values, err := rows.Values()
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan result: %w", err)
+	}
+
+	// Build record map
+	record := make(map[string]interface{})
+	columns := rows.FieldDescriptions()
+	for i, col := range columns {
+		record[col.Name] = values[i]
+	}
+
+	// Extract ID
+	var id interface{}
+	if len(values) > 0 {
+		id = values[0]
 		for i, col := range columns {
-			record[col.Name] = values[i]
-		}
-
-		// Extract ID
-		var id interface{}
-		if len(values) > 0 {
-			id = values[0]
-			for i, col := range columns {
-				if col.Name == "id" {
-					id = values[i]
-					break
-				}
+			if col.Name == "id" {
+				id = values[i]
+				break
 			}
 		}
+	}
 
-		result = &engine.InsertResult{
-			ID:       id,
-			Record:   record,
-			Affected: 1,
-		}
-	} else {
-		result = &engine.InsertResult{
-			ID:       nil,
-			Record:   nil,
-			Affected: 1,
-		}
+	result := &engine.InsertResult{
+		ID:       id,
+		Record:   record,
+		Affected: 1,
 	}
 
 	duration := time.Since(start)
 
-	// Debug trace
 	if ib.shouldTrace() {
 		fmt.Printf("[TRACE] INSERT on %s: %v, 1 row\n", ib.entity, duration)
 	}
@@ -279,7 +279,6 @@ func (ub *UpdateBuilder) Execute(ctx context.Context) (*engine.UpdateResult, err
 	// Execute via pgx
 	rows, err := ub.connector.Pool().Query(ctx, sql, orderedValues...)
 	if err != nil {
-		// ← CAMBIO: Map database error to ChameleonDB error
 		return nil, mapDatabaseError(err, ub.entity, "UPDATE", ub.updates)
 	}
 	defer rows.Close()
@@ -301,9 +300,12 @@ func (ub *UpdateBuilder) Execute(ctx context.Context) (*engine.UpdateResult, err
 		records = append(records, record)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, mapDatabaseError(err, ub.entity, "UPDATE", ub.updates)
+	}
+
 	duration := time.Since(start)
 
-	// Debug trace
 	if ub.shouldTrace() {
 		fmt.Printf("[TRACE] UPDATE on %s: %v, %d rows\n", ub.entity, duration, len(records))
 	}

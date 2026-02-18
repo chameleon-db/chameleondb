@@ -9,6 +9,32 @@ import (
 )
 
 // ============================================================
+// VALIDATION STRATEGY
+// ============================================================
+//
+// ChameleonDB uses a HYBRID validation model:
+//
+// Layer 1 (Go Validator) - Fast-fail validations:
+//   - Schema existence (entity, fields)
+//   - Type correctness (string, int, UUID)
+//   - Format validation (email, UUID)
+//   - NOT NULL constraints
+//   - Safety guards (UPDATE/DELETE without WHERE)
+//
+// Layer 2 (DB) - Integrity validations:
+//   - UNIQUE constraints
+//   - FOREIGN KEY constraints
+//   - CHECK constraints
+//   - Triggers and complex rules
+//
+// This approach:
+//   - Avoids unnecessary round-trips (validate types in Go)
+//   - Delegates integrity to DB (UNIQUE, FK handled correctly)
+//   - Provides clear error messages (mapped via error_mapping.go)
+//
+// ============================================================
+
+// ============================================================
 // VALIDATOR CONFIG
 // ============================================================
 
