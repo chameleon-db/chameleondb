@@ -78,13 +78,13 @@ Backend annotations are part of the schema definition, not the execution layer. 
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Parser | ✅ Complete | LALRPOP, all types and annotations |
-| AST | ✅ Complete | Serializable, extensible |
-| Type Checker | ✅ Complete | Relations, constraints, cycles |
-| FFI Layer | ✅ Complete | Parse + validate via C ABI |
-| Go Runtime | ✅ Basic | Engine + CLI functional |
-| Query Builder | 🚧 Next | Filter, include, select |
-| PostgreSQL Backend | ⏳ Upcoming | Connection pool + execution |
-| Backend Registry | ⏳ Upcoming | Annotation-based routing |
-| Migration Generator | ⏳ Upcoming | Schema → SQL diff |
-| Code Generator | ⏳ Upcoming | Type-safe API bindings |
+| Parser |  Complete | LALRPOP, all types and annotations |
+| AST |  Complete | Serializable, extensible |
+| Type Checker |  Complete | Relations, constraints, cycles |
+| FFI Layer |  Complete | Parse + validate via C ABI |
+| Go Runtime |  Basic | Engine + CLI functional |
+| Query Builder |  Next | Filter, include, select |
+| PostgreSQL Backend |  Upcoming | Connection pool + execution |
+| Backend Registry |  Upcoming | Annotation-based routing |
+| Migration Generator |  Upcoming | Schema → SQL diff |
+| Code Generator |  Upcoming | Type-safe API bindings |
