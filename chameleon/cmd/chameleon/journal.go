@@ -10,6 +10,7 @@ import (
 
 	"github.com/chameleon-db/chameleondb/chameleon/internal/admin"
 	"github.com/chameleon-db/chameleondb/chameleon/internal/journal"
+	"github.com/chameleon-db/chameleondb/chameleon/pkg/vault"
 )
 
 var (
@@ -26,10 +27,11 @@ The journal is an append-only log of all ChameleonDB operations.
 Stored in .chameleon/journal/ with daily rotation.
 
 Subcommands:
-  journal last       Show last N operations
-  journal errors     Show error operations
-  journal migrations Show migration history
-  journal search     Search journal entries`,
+  journal last        Show last N operations
+  journal errors      Show error operations
+  journal migrations  Show migration history
+  journal schema      Show schema version history (vault)
+  journal search      Search journal entries`,
 	Args: cobra.MinimumNArgs(1),
 }
 
@@ -177,11 +179,129 @@ Examples:
 	},
 }
 
+// ========================================
+// Schema Vault Journal
+// ========================================
+
+var journalSchemaCmd = &cobra.Command{
+	Use:   "schema [version]",
+	Short: "Show schema version history (vault)",
+	Long: `View the complete version history of schemas from the Schema Vault.
+	
+Examples:
+  chameleon journal schema          # View all versions
+  chameleon journal schema v002     # View details of v002`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runJournalSchema,
+}
+
+func runJournalSchema(cmd *cobra.Command, args []string) error {
+	workDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	v := vault.NewVault(workDir)
+
+	if !v.Exists() {
+		fmt.Println("❌ No vault found")
+		fmt.Println("   Run 'chameleon migrate' to initialize")
+		return nil
+	}
+
+	if len(args) == 1 {
+		// Show specific version
+		showVersionDetail(v, args[0])
+	} else {
+		// Show all versions
+		showVersionHistory(v)
+	}
+
+	return nil
+}
+
+func showVersionHistory(v *vault.Vault) {
+	history, err := v.GetVersionHistory()
+	if err != nil {
+		fmt.Printf("❌ Failed to read history: %v\n", err)
+		return
+	}
+
+	if len(history) == 0 {
+		fmt.Println("📖 No schema versions yet")
+		return
+	}
+
+	fmt.Println()
+	fmt.Println("📖 Schema Version History")
+	fmt.Println()
+
+	// Show in reverse order (newest first)
+	for i := len(history) - 1; i >= 0; i-- {
+		entry := history[i]
+
+		// Mark current version
+		marker := ""
+		if err := v.Load(); err == nil && v.Manifest.CurrentVersion == entry.Version {
+			marker = " (current) ✓"
+		}
+
+		fmt.Println(vault.FormatVersion(&entry) + marker)
+		fmt.Println()
+	}
+}
+
+func showVersionDetail(v *vault.Vault, version string) {
+	entry, err := v.GetVersion(version)
+	if err != nil {
+		fmt.Printf("❌ Version %s not found\n", version)
+		return
+	}
+
+	fmt.Println()
+	fmt.Printf("📋 Schema Version: %s\n", version)
+	fmt.Println("─────────────────────────────────────────")
+	fmt.Printf("Hash:      %s\n", entry.Hash)
+	fmt.Printf("Timestamp: %s\n", entry.Timestamp.Format("2006-01-02T15:04:05Z"))
+	fmt.Printf("Author:    %s\n", entry.Author)
+
+	if entry.Parent != nil {
+		fmt.Printf("Parent:    %s\n", *entry.Parent)
+	} else {
+		fmt.Println("Parent:    none (initial version)")
+	}
+
+	fmt.Printf("Status:    %s\n", statusString(entry.Locked))
+	fmt.Println()
+
+	if entry.ChangesSummary != "" {
+		fmt.Println("📝 Changes Summary:")
+		fmt.Printf("  %s\n", entry.ChangesSummary)
+		fmt.Println()
+	}
+
+	if len(entry.Files) > 0 {
+		fmt.Println("📂 Files:")
+		for _, file := range entry.Files {
+			fmt.Printf("  • %s\n", file)
+		}
+		fmt.Println()
+	}
+}
+
+func statusString(locked bool) string {
+	if locked {
+		return "locked ✓"
+	}
+	return "unlocked"
+}
+
 func init() {
 	// Add journal subcommands
 	journalCmd.AddCommand(journalLastCmd)
 	journalCmd.AddCommand(journalErrorsCmd)
 	journalCmd.AddCommand(journalMigrationsCmd)
+	journalCmd.AddCommand(journalSchemaCmd)
 
 	// Add flags
 	journalLastCmd.Flags().IntVar(&journalLimit, "limit", 10, "number of entries to show")
