@@ -16,6 +16,7 @@ import (
 	"github.com/chameleon-db/chameleondb/chameleon/internal/schema"
 	"github.com/chameleon-db/chameleondb/chameleon/internal/state"
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
+	"github.com/chameleon-db/chameleondb/chameleon/pkg/vault"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -73,6 +74,54 @@ Examples:
 			return fmt.Errorf("failed to initialize state tracker: %w", err)
 		}
 
+		// ========================================
+		// SCHEMA VAULT INTEGRATION
+		// ========================================
+
+		// Initialize Schema Vault
+		v := vault.NewVault(workDir)
+
+		// Auto-initialize vault if doesn't exist
+		if !v.Exists() {
+			printInfo("Initializing Schema Vault...")
+			if err := v.Initialize(); err != nil {
+				journalLogger.LogError("migrate", err, map[string]interface{}{"action": "vault_init"})
+				return fmt.Errorf("failed to initialize vault: %w", err)
+			}
+			printSuccess("Created .chameleon/vault/")
+		}
+
+		// Verify integrity
+		printInfo("Verifying schema integrity...")
+		vaultResult, err := v.VerifyIntegrity()
+		if err != nil {
+			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "verify_integrity"})
+			return fmt.Errorf("integrity verification failed: %w", err)
+		}
+
+		if !vaultResult.Valid {
+			fmt.Println()
+			printError("INTEGRITY VIOLATION DETECTED")
+			fmt.Println()
+			for _, issue := range vaultResult.Issues {
+				printError("  • %s", issue)
+			}
+			fmt.Println()
+			printError("Schema vault has been modified!")
+			fmt.Println("Recovery options:")
+			fmt.Println("   1. Run 'chameleon verify' for details")
+			fmt.Println("   2. Check .chameleon/vault/integrity.log")
+			fmt.Println("   3. Contact your DBA")
+			fmt.Println()
+			printError("Migration aborted for safety")
+
+			journalLogger.LogError("migrate",
+				fmt.Errorf("integrity violation: %d issues", len(vaultResult.Issues)),
+				map[string]interface{}{"action": "verify_integrity"})
+
+			return fmt.Errorf("integrity check failed")
+		}
+
 		// Log migration start
 		logDetails := map[string]interface{}{
 			"action":  "check",
@@ -80,6 +129,34 @@ Examples:
 			"apply":   applyMigration,
 		}
 		journalLogger.Log("migrate", "started", logDetails, nil)
+
+		// Show current vault status
+		if v.Manifest != nil && v.Manifest.CurrentVersion != "" {
+			current, _ := v.GetCurrentVersion()
+			if current != nil {
+				printSuccess("Current version: %s (%s...)", current.Version, current.Hash[:12])
+				mode, modeErr := v.GetParanoidMode()
+				if modeErr != nil {
+					journalLogger.LogError("migrate", modeErr, map[string]interface{}{"action": "read_mode"})
+					return fmt.Errorf("failed to read vault mode: %w", modeErr)
+				}
+
+				if mode == "readonly" {
+					printError("Read Only mode is active - schema modifications are blocked")
+					fmt.Println()
+					printInfo("To override (not recommended):")
+					fmt.Println("   1. Set paranoia mode: chameleon config set mode=standard")
+					fmt.Println("   2. Fix integrity issues first")
+					fmt.Println()
+					journalLogger.Log("migrate", "aborted_readonly", logDetails, nil)
+					return fmt.Errorf("readonly mode: schema locked")
+				}
+
+				printInfo("Vault mode active: %s", mode)
+			}
+		} else {
+			printInfo("No schema versions registered yet")
+		}
 
 		// Load and merge schemas
 		printInfo("Loading schemas from: %v", cfg.Schema.Paths)
@@ -148,14 +225,61 @@ Examples:
 		}
 
 		printSuccess("Schema loaded and validated")
-		mergedSchemaPath := filepath.Join(filepath.Dir(cfg.Schema.Paths[0]), "schema.merged.cham")
 
-		// Get current state
+		// Save merged schema to temp file for vault registration
+		mergedSchemaPath := filepath.Join(workDir, ".chameleon", "state", "schema.merged.cham")
+		if err := os.WriteFile(mergedSchemaPath, []byte(mergedSchema), 0644); err != nil {
+			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "save_merged_schema"})
+			return fmt.Errorf("failed to save merged schema: %w", err)
+		}
+
+		// Get current state early (needed for both normal and retry paths)
 		currentState, err := stateTracker.LoadCurrent()
 		if err != nil {
 			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "load_state"})
 			return fmt.Errorf("failed to load current state: %w", err)
 		}
+
+		// ========================================
+		// DETECT SCHEMA CHANGES (Schema Vault)
+		// ========================================
+
+		changed, changesSummary, err := v.DetectChanges(mergedSchemaPath)
+		if err != nil {
+			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "detect_changes"})
+			return fmt.Errorf("failed to detect changes: %w", err)
+		}
+
+		lastAppliedMigration, err := stateTracker.GetLastMigration()
+		if err != nil {
+			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "get_last_migration"})
+			return fmt.Errorf("failed to get last migration: %w", err)
+		}
+
+		currentVaultVersion := ""
+		if v.Manifest != nil {
+			currentVaultVersion = v.Manifest.CurrentVersion
+		}
+
+		hasPendingUnappliedVersion := currentVaultVersion != "" && (lastAppliedMigration == nil || lastAppliedMigration.Version != currentVaultVersion)
+
+		if !changed {
+			if !hasPendingUnappliedVersion {
+				printInfo("No schema changes detected")
+				fmt.Println()
+				printSuccess("Schema is up to date")
+				journalLogger.Log("migrate", "no_changes", map[string]interface{}{"action": "check"}, nil)
+				return nil
+			}
+
+			changesSummary = fmt.Sprintf("Retry pending migration for %s", currentVaultVersion)
+			printWarning("Schema unchanged, but latest version %s is not applied to database", currentVaultVersion)
+			journalLogger.Log("migrate", "pending_unapplied", map[string]interface{}{
+				"vault_version": currentVaultVersion,
+			}, nil)
+		}
+
+		printInfo("Schema changes detected: %s", changesSummary)
 
 		// Generate migration
 		printInfo("Generating migration SQL...")
@@ -165,18 +289,6 @@ Examples:
 			return fmt.Errorf("failed to generate migration: %w", err)
 		}
 		printSuccess("Migration SQL generated")
-
-		// Get last migration
-		lastMigration, err := stateTracker.GetLastMigration()
-		if err != nil {
-			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "get_last_migration"})
-			return fmt.Errorf("failed to get last migration: %w", err)
-		}
-
-		// Keep placeholder for future schema hash comparison.
-		if lastMigration != nil {
-			_ = lastMigration
-		}
 
 		// Display migration plan
 		fmt.Println()
@@ -193,6 +305,29 @@ Examples:
 			return nil
 		}
 
+		// ========================================
+		// REGISTER VERSION IN VAULT (before applying)
+		// ========================================
+
+		printInfo("Registering new schema version...")
+
+		// Get author (current user or from config)
+		author := os.Getenv("USER")
+		if author == "" {
+			author = "unknown"
+		}
+
+		newVersion, err := v.RegisterVersion(mergedSchemaPath, author, changesSummary)
+		if err != nil {
+			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "register_version"})
+			return fmt.Errorf("failed to register version: %w", err)
+		}
+
+		printSuccess("Registered as %s (hash: %s...)", newVersion.Version, newVersion.Hash[:12])
+		if newVersion.Parent != nil {
+			printInfo("Parent version: %s", *newVersion.Parent)
+		}
+
 		printInfo("Connecting to database...")
 
 		// Connect to database
@@ -201,6 +336,33 @@ Examples:
 
 		conn, err := pgx.Connect(connCtx, cfg.Database.ConnectionString)
 		if err != nil {
+			currentState.Status = "pending_migration"
+			if saveErr := stateTracker.SaveCurrent(currentState); saveErr != nil {
+				journalLogger.LogError("migrate", saveErr, map[string]interface{}{"action": "save_state_connect_failure"})
+			}
+
+			failedMigration := &state.Migration{
+				Version:     newVersion.Version,
+				Timestamp:   time.Now(),
+				Type:        "auto",
+				Description: changesSummary,
+				Status:      "failed",
+				SchemaHash:  newVersion.Hash,
+				DDLHash:     state.HashDDL(migrationSQL),
+				Checksum:    "pending",
+			}
+			if addErr := stateTracker.AddMigration(failedMigration); addErr != nil {
+				journalLogger.LogError("migrate", addErr, map[string]interface{}{"action": "record_failed_migration_connect"})
+			}
+
+			journalLogger.LogMigration(newVersion.Version, "failed", 0, "", map[string]interface{}{
+				"error": err.Error(),
+			})
+			v.AppendLog("MIGRATE", newVersion.Version, map[string]string{
+				"status": "failed",
+				"error":  err.Error(),
+			})
+
 			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "connect"})
 			return fmt.Errorf("failed to connect to database: %w", err)
 		}
@@ -220,9 +382,36 @@ Examples:
 		_, err = conn.Exec(ctx, migrationSQL)
 		if err != nil {
 			duration := time.Since(startTime).Milliseconds()
-			journalLogger.LogMigration("", "failed", duration, "", map[string]interface{}{
+
+			currentState.Status = "pending_migration"
+			if saveErr := stateTracker.SaveCurrent(currentState); saveErr != nil {
+				journalLogger.LogError("migrate", saveErr, map[string]interface{}{"action": "save_state_exec_failure"})
+			}
+
+			failedMigration := &state.Migration{
+				Version:     newVersion.Version,
+				Timestamp:   time.Now(),
+				Type:        "auto",
+				Description: changesSummary,
+				Status:      "failed",
+				SchemaHash:  newVersion.Hash,
+				DDLHash:     state.HashDDL(migrationSQL),
+				Checksum:    "pending",
+			}
+			if addErr := stateTracker.AddMigration(failedMigration); addErr != nil {
+				journalLogger.LogError("migrate", addErr, map[string]interface{}{"action": "record_failed_migration_exec"})
+			}
+
+			journalLogger.LogMigration(newVersion.Version, "failed", duration, "", map[string]interface{}{
 				"error": err.Error(),
 			})
+
+			// Log failure in vault
+			v.AppendLog("MIGRATE", newVersion.Version, map[string]string{
+				"status": "failed",
+				"error":  err.Error(),
+			})
+
 			printError("Migration failed")
 			return fmt.Errorf("failed to execute migration: %w", err)
 		}
@@ -246,13 +435,13 @@ Examples:
 
 		// Add migration to manifest
 		migration := &state.Migration{
-			Version:     time.Now().Format("20060102-150405"),
+			Version:     newVersion.Version, // Use vault version
 			Timestamp:   time.Now(),
-			Type:        "initial",
-			Description: "Auto-generated migration",
+			Type:        "auto",
+			Description: changesSummary,
 			AppliedAt:   time.Now(),
 			Status:      "applied",
-			SchemaHash:  state.HashSchema(mergedSchemaPath),
+			SchemaHash:  newVersion.Hash, // Use vault hash
 			DDLHash:     state.HashDDL(migrationSQL),
 			Checksum:    "verified",
 		}
@@ -263,9 +452,14 @@ Examples:
 			printError("Warning: Failed to record migration: %v", err)
 		}
 
-		// Log migration success
+		// Log migration success (both journal and vault)
 		journalLogger.LogMigration(migration.Version, "applied", duration, "", map[string]interface{}{
 			"tables_created": 0,
+		})
+
+		v.AppendLog("MIGRATE", newVersion.Version, map[string]string{
+			"status":   "applied",
+			"duration": fmt.Sprintf("%dms", duration),
 		})
 
 		fmt.Println()
@@ -273,6 +467,7 @@ Examples:
 		fmt.Println()
 		fmt.Println("Summary:")
 		fmt.Printf("  Version:  %s\n", migration.Version)
+		fmt.Printf("  Hash:     %s\n", newVersion.Hash[:16]+"...")
 		fmt.Printf("  Duration: %dms\n", duration)
 		fmt.Printf("  Status:   applied\n")
 		fmt.Println()
