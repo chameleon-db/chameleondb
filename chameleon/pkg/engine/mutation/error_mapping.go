@@ -77,9 +77,12 @@ func mapForeignKeyViolation(pgErr *pgconn.PgError, entity string, values map[str
 	field := extractFieldFromDetail(pgErr.Detail)
 	value := extractValueForField(field, values)
 
-	// Try to extract referenced table from constraint name
-	// Constraint name format: fk_posts_author_id_users
-	referencedTable := extractReferencedTable(pgErr.ConstraintName)
+	// Try to extract referenced table from Detail first (more reliable)
+	referencedTable := extractReferencedTableFromDetail(pgErr.Detail)
+	if referencedTable == "" {
+		// Fallback to constraint name parsing
+		referencedTable = extractReferencedTable(pgErr.ConstraintName)
+	}
 
 	return &engine.ForeignKeyError{
 		Field:            field,
@@ -96,13 +99,22 @@ func mapNotNullViolation(pgErr *pgconn.PgError, entity string, values map[string
 	// Column name is in pgErr.ColumnName
 	field := pgErr.ColumnName
 	if field == "" {
+		// Try to extract from Detail first
+		field = extractFieldFromDetail(pgErr.Detail)
+	}
+	if field == "" {
 		// Fallback to parsing message
 		field = extractFieldFromMessage(pgErr.Message)
 	}
 
+	suggestion := "Provide a value for this field (it is required)"
+	if field != "" {
+		suggestion = fmt.Sprintf("Provide a value for %s (this field is required)", field)
+	}
+
 	return &engine.NotNullError{
 		Field:      field,
-		Suggestion: fmt.Sprintf("Provide a value for %s (this field is required)", field),
+		Suggestion: suggestion,
 	}
 }
 
@@ -173,6 +185,35 @@ func extractReferencedTable(constraintName string) string {
 	}
 
 	return "referenced_table"
+}
+
+// extractReferencedTableFromDetail extracts referenced table name from FK error detail
+// Input: 'Key (author_id)=(uuid-999) is not present in table "users".'
+// Output: "users"
+func extractReferencedTableFromDetail(detail string) string {
+	if detail == "" {
+		return ""
+	}
+
+	// Look for pattern: in table "table_name"
+	inTableIdx := strings.Index(detail, "in table")
+	if inTableIdx < 0 {
+		return ""
+	}
+
+	// Find the quoted table name after "in table"
+	quotedPart := detail[inTableIdx+len("in table"):]
+	start := strings.Index(quotedPart, `"`)
+	if start < 0 {
+		return ""
+	}
+
+	end := strings.Index(quotedPart[start+1:], `"`)
+	if end < 0 {
+		return ""
+	}
+
+	return quotedPart[start+1 : start+1+end]
 }
 
 // extractFieldFromMessage extracts field name from error message
