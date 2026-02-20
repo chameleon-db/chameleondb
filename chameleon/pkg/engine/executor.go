@@ -30,11 +30,17 @@ func (ex *Executor) Execute(ctx context.Context, qb *QueryBuilder) (*QueryResult
 		return nil, fmt.Errorf("SQL generation failed: %w", err)
 	}
 
+	// Create identity map for this query.
+	identityMap := NewIdentityMap()
+
 	// Execute main query
 	mainRows, err := ex.executeQuery(ctx, generated.MainQuery)
 	if err != nil {
 		return nil, fmt.Errorf("main query failed: %w", err)
 	}
+
+	// Deduplicate main rows.
+	mainRows = identityMap.Deduplicate(qb.query.Entity, mainRows)
 
 	// Execute eager queries
 	relations := make(map[string][]Row)
@@ -44,7 +50,7 @@ func (ex *Executor) Execute(ctx context.Context, qb *QueryBuilder) (*QueryResult
 		relName := eager[0]
 		relSQL := eager[1]
 
-		// Replace $PARENT_IDS placeholder with actual values
+		// Replace $PARENT_IDS placeholder with actual values.
 		sql, err := replacePlaceholder(relSQL, parentIDs)
 		if err != nil {
 			return nil, fmt.Errorf("eager query '%s' failed: %w", relName, err)
@@ -55,10 +61,13 @@ func (ex *Executor) Execute(ctx context.Context, qb *QueryBuilder) (*QueryResult
 			return nil, fmt.Errorf("eager query '%s' failed: %w", relName, err)
 		}
 
+		// Deduplicate eager rows.
+		entityName := inferEntityNameFromRelation(relName)
+		eagerRows = identityMap.Deduplicate(entityName, eagerRows)
+
 		relations[relName] = eagerRows
 
-		// Update parentIDs for next level (nested includes)
-		// The FK field name is in the WHERE clause, extract the relevant IDs
+		// Update parent IDs for nested includes.
 		parentIDs = extractIDs(eagerRows, "id")
 	}
 
@@ -69,7 +78,29 @@ func (ex *Executor) Execute(ctx context.Context, qb *QueryBuilder) (*QueryResult
 	}, nil
 }
 
-// executeQuery runs a single SQL query and returns rows
+// inferEntityNameFromRelation infers entity name from relation name.
+// Example: "posts" -> "Post", "orderItems" -> "OrderItem".
+func inferEntityNameFromRelation(relName string) string {
+
+	if relName == "" {
+		return relName
+	}
+
+	// Remove trailing 's' if present.
+	singular := relName
+	if strings.HasSuffix(relName, "s") && len(relName) > 1 {
+		singular = relName[:len(relName)-1]
+	}
+
+	// Capitalize first letter.
+	if len(singular) > 0 {
+		return strings.ToUpper(singular[:1]) + singular[1:]
+	}
+
+	return singular
+}
+
+// executeQuery runs a single SQL query and returns rows.
 func (ex *Executor) executeQuery(ctx context.Context, sql string) ([]Row, error) {
 	rows, err := ex.connector.Pool().Query(ctx, sql)
 	if err != nil {
@@ -80,7 +111,7 @@ func (ex *Executor) executeQuery(ctx context.Context, sql string) ([]Row, error)
 	return scanRows(rows)
 }
 
-// scanRows converts pgx rows into our Row type
+// scanRows converts pgx rows into Row.
 func scanRows(rows pgx.Rows) ([]Row, error) {
 	var result []Row
 	columns := rows.FieldDescriptions()
@@ -105,17 +136,15 @@ func scanRows(rows pgx.Rows) ([]Row, error) {
 	return result, nil
 }
 
-// extractIDs pulls a specific field from all rows and converts to string if needed
+// extractIDs pulls a field from all rows and converts UUID values to string.
 func extractIDs(rows []Row, field string) []interface{} {
 	ids := make([]interface{}, 0, len(rows))
 	for _, row := range rows {
 		if id, ok := row[field]; ok {
-			// Convert UUID types to string
 			switch v := id.(type) {
 			case []byte:
 				ids = append(ids, string(v))
-			case [16]byte: // PostgreSQL UUID type
-				// Convert to standard UUID string format
+			case [16]byte:
 				ids = append(ids, uuidToString(v))
 			case string:
 				ids = append(ids, v)
@@ -127,7 +156,7 @@ func extractIDs(rows []Row, field string) []interface{} {
 	return ids
 }
 
-// uuidToString converts a [16]byte UUID to standard string format
+// uuidToString converts a [16]byte UUID to standard format.
 func uuidToString(uuid [16]byte) string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x",
 		uuid[0:4],
@@ -137,7 +166,7 @@ func uuidToString(uuid [16]byte) string {
 		uuid[10:16])
 }
 
-// replacePlaceholder replaces $PARENT_IDS with actual IN clause values
+// replacePlaceholder replaces $PARENT_IDS with literal IN-clause values.
 func replacePlaceholder(sql string, ids []interface{}) (string, error) {
 	if len(ids) == 0 {
 		return strings.Replace(sql, "$PARENT_IDS", "NULL", 1), nil
@@ -147,7 +176,6 @@ func replacePlaceholder(sql string, ids []interface{}) (string, error) {
 	for i, id := range ids {
 		switch v := id.(type) {
 		case string:
-			// Escape single quotes and wrap in quotes
 			escaped := strings.ReplaceAll(v, "'", "''")
 			placeholders[i] = fmt.Sprintf("'%s'", escaped)
 		case int, int32, int64, uint, uint32, uint64:
@@ -155,7 +183,6 @@ func replacePlaceholder(sql string, ids []interface{}) (string, error) {
 		case float32, float64:
 			placeholders[i] = fmt.Sprintf("%f", v)
 		default:
-			// Fallback: convert to string and quote
 			placeholders[i] = fmt.Sprintf("'%v'", v)
 		}
 	}
