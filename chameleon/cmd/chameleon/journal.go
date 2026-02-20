@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -48,14 +49,17 @@ Examples:
 			return fmt.Errorf("failed to get working directory: %w", err)
 		}
 
-		// Get limit
-		limit := 10
+		// Resolve limit from flag, optionally overridden by positional arg.
+		limit := journalLimit
 		if len(args) > 0 {
 			n, err := strconv.Atoi(args[0])
 			if err != nil {
 				return fmt.Errorf("invalid number: %s", args[0])
 			}
 			limit = n
+		}
+		if limit <= 0 {
+			return fmt.Errorf("limit must be greater than 0")
 		}
 
 		// Initialize journal logger
@@ -244,30 +248,37 @@ func printMigrationsTable(entries []*journal.Entry) {
 
 // printEntriesJSON prints entries in JSON format
 func printEntriesJSON(entries []*journal.Entry) {
-	fmt.Println("[")
-	for i, entry := range entries {
-		fmt.Printf("  {\n")
-		fmt.Printf("    \"timestamp\": \"%s\",\n", entry.Timestamp.Format("2006-01-02T15:04:05Z07:00"))
-		fmt.Printf("    \"action\": \"%s\",\n", entry.Action)
-		fmt.Printf("    \"status\": \"%s\",\n", entry.Status)
-
-		if entry.Duration > 0 {
-			fmt.Printf("    \"duration_ms\": %d,\n", entry.Duration)
-		}
-
-		if entry.Error != "" {
-			fmt.Printf("    \"error\": \"%s\"\n", entry.Error)
-		} else {
-			fmt.Printf("    \"error\": null\n")
-		}
-
-		fmt.Printf("  }")
-		if i < len(entries)-1 {
-			fmt.Printf(",")
-		}
-		fmt.Printf("\n")
+	type entryJSON struct {
+		Timestamp  string `json:"timestamp"`
+		Action     string `json:"action"`
+		Status     string `json:"status"`
+		DurationMS int64  `json:"duration_ms,omitempty"`
+		Error      string `json:"error,omitempty"`
 	}
-	fmt.Println("]")
+
+	out := make([]entryJSON, 0, len(entries))
+	for _, entry := range entries {
+		item := entryJSON{
+			Timestamp: entry.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+			Action:    entry.Action,
+			Status:    entry.Status,
+		}
+		if entry.Duration > 0 {
+			item.DurationMS = entry.Duration
+		}
+		if entry.Error != "" {
+			item.Error = entry.Error
+		}
+		out = append(out, item)
+	}
+
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		printError("Failed to encode journal output as JSON: %v", err)
+		return
+	}
+
+	fmt.Println(string(data))
 }
 
 // truncate truncates a string to max length

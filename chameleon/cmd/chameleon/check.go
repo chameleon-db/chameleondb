@@ -1,11 +1,11 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
 	"github.com/spf13/cobra"
@@ -33,20 +33,7 @@ Examples:
   chameleon check --json < schema.cham`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := context.Background()
-
-		config, err := LoadConnectorConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-
 		eng := engine.NewEngine()
-		connector := engine.NewConnector(config)
-		if err := connector.Connect(ctx); err != nil {
-			return fmt.Errorf("failed to connect: %w", err)
-		}
-
-		defer connector.Close()
 		// Determine schema file or read from stdin
 		var input string
 		var filename string
@@ -193,7 +180,23 @@ func printCheckErrors(filename string, rawErrMsg string) error {
 		fmt.Println(string(data))
 		return nil
 	}
-	output, _ := json.MarshalIndent(result, "", "  ")
+	fallback := CheckResult{
+		Valid: false,
+		Errors: []CheckError{
+			{
+				Message:  strings.TrimSpace(rawErrMsg),
+				Line:     1,
+				Column:   1,
+				File:     filename,
+				Severity: "error",
+			},
+		},
+	}
+	if fallback.Errors[0].Message == "" {
+		fallback.Errors[0].Message = "schema validation failed"
+	}
+
+	output, _ := json.MarshalIndent(fallback, "", "  ")
 	fmt.Println(string(output))
 	return nil
 }

@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -44,11 +45,24 @@ func (ex *Executor) Execute(ctx context.Context, qb *QueryBuilder) (*QueryResult
 
 	// Execute eager queries
 	relations := make(map[string][]Row)
-	parentIDs := extractIDs(mainRows, "id")
+	relationIDs := map[string][]interface{}{
+		"": extractIDs(mainRows, "id"),
+	}
 
 	for _, eager := range generated.EagerQueries {
+		if len(eager) < 2 {
+			return nil, fmt.Errorf("invalid eager query format")
+		}
+
 		relName := eager[0]
 		relSQL := eager[1]
+
+		parentIDs := relationIDs[""]
+		if parentPath, ok := relationParentPath(relName); ok {
+			if ids, found := relationIDs[parentPath]; found {
+				parentIDs = ids
+			}
+		}
 
 		// Replace $PARENT_IDS placeholder with actual values.
 		sql, err := replacePlaceholder(relSQL, parentIDs)
@@ -66,9 +80,7 @@ func (ex *Executor) Execute(ctx context.Context, qb *QueryBuilder) (*QueryResult
 		eagerRows = identityMap.Deduplicate(entityName, eagerRows)
 
 		relations[relName] = eagerRows
-
-		// Update parent IDs for nested includes.
-		parentIDs = extractIDs(eagerRows, "id")
+		relationIDs[relName] = extractIDs(eagerRows, "id")
 	}
 
 	return &QueryResult{
@@ -81,15 +93,19 @@ func (ex *Executor) Execute(ctx context.Context, qb *QueryBuilder) (*QueryResult
 // inferEntityNameFromRelation infers entity name from relation name.
 // Example: "posts" -> "Post", "orderItems" -> "OrderItem".
 func inferEntityNameFromRelation(relName string) string {
-
 	if relName == "" {
 		return relName
 	}
 
+	segment := relName
+	if idx := strings.LastIndex(relName, "."); idx >= 0 && idx+1 < len(relName) {
+		segment = relName[idx+1:]
+	}
+
 	// Remove trailing 's' if present.
-	singular := relName
-	if strings.HasSuffix(relName, "s") && len(relName) > 1 {
-		singular = relName[:len(relName)-1]
+	singular := segment
+	if strings.HasSuffix(segment, "s") && len(segment) > 1 {
+		singular = segment[:len(segment)-1]
 	}
 
 	// Capitalize first letter.
@@ -98,6 +114,14 @@ func inferEntityNameFromRelation(relName string) string {
 	}
 
 	return singular
+}
+
+func relationParentPath(relName string) (string, bool) {
+	idx := strings.LastIndex(relName, ".")
+	if idx <= 0 {
+		return "", false
+	}
+	return relName[:idx], true
 }
 
 // executeQuery runs a single SQL query and returns rows.
@@ -174,17 +198,11 @@ func replacePlaceholder(sql string, ids []interface{}) (string, error) {
 
 	placeholders := make([]string, len(ids))
 	for i, id := range ids {
-		switch v := id.(type) {
-		case string:
-			escaped := strings.ReplaceAll(v, "'", "''")
-			placeholders[i] = fmt.Sprintf("'%s'", escaped)
-		case int, int32, int64, uint, uint32, uint64:
-			placeholders[i] = fmt.Sprintf("%d", v)
-		case float32, float64:
-			placeholders[i] = fmt.Sprintf("%f", v)
-		default:
-			placeholders[i] = fmt.Sprintf("'%v'", v)
+		literal, err := sqlLiteral(id)
+		if err != nil {
+			return "", err
 		}
+		placeholders[i] = literal
 	}
 
 	return strings.Replace(
@@ -193,4 +211,45 @@ func replacePlaceholder(sql string, ids []interface{}) (string, error) {
 		strings.Join(placeholders, ", "),
 		1,
 	), nil
+}
+
+func sqlLiteral(value interface{}) (string, error) {
+	switch v := value.(type) {
+	case nil:
+		return "NULL", nil
+	case string:
+		escaped := strings.ReplaceAll(v, "'", "''")
+		return fmt.Sprintf("'%s'", escaped), nil
+	case int:
+		return strconv.Itoa(v), nil
+	case int8:
+		return strconv.FormatInt(int64(v), 10), nil
+	case int16:
+		return strconv.FormatInt(int64(v), 10), nil
+	case int32:
+		return strconv.FormatInt(int64(v), 10), nil
+	case int64:
+		return strconv.FormatInt(v, 10), nil
+	case uint:
+		return strconv.FormatUint(uint64(v), 10), nil
+	case uint8:
+		return strconv.FormatUint(uint64(v), 10), nil
+	case uint16:
+		return strconv.FormatUint(uint64(v), 10), nil
+	case uint32:
+		return strconv.FormatUint(uint64(v), 10), nil
+	case uint64:
+		return strconv.FormatUint(v, 10), nil
+	case float32:
+		return strconv.FormatFloat(float64(v), 'f', -1, 32), nil
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64), nil
+	case bool:
+		if v {
+			return "TRUE", nil
+		}
+		return "FALSE", nil
+	default:
+		return "", fmt.Errorf("unsupported parent id type: %T", value)
+	}
 }

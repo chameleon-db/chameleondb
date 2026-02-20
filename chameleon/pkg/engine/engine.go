@@ -22,7 +22,7 @@ type Engine struct {
 }
 
 func (e *Engine) Schema() *Schema {
-	panic("unimplemented")
+	return e.schema
 }
 
 // ============================================================
@@ -140,9 +140,6 @@ func (e *Engine) Connect(ctx context.Context, config ConnectorConfig) error {
 	}
 	e.executor = NewExecutor(e.connector)
 
-	// Mutation factory is auto-registered via init() in mutation package
-	// No need to do anything here - registry handles it
-
 	return nil
 }
 
@@ -195,28 +192,49 @@ func (e *Engine) GenerateMigration() (string, error) {
 
 // Insert starts a new INSERT mutation
 func (e *Engine) Insert(entity string) InsertMutation {
-	e.ensureSchemaLoaded()
-	e.ensureConnected()
+	if e.schema == nil {
+		return newInvalidInsertMutation(fmt.Errorf("schema not loaded - call LoadSchemaFromFile first"))
+	}
+	if e.connector == nil {
+		return newInvalidInsertMutation(fmt.Errorf("not connected - call Connect() first"))
+	}
 
 	factory := getMutationFactory()
+	if factory == nil {
+		return newInvalidInsertMutation(fmt.Errorf("no mutation factory registered"))
+	}
 	return factory.NewInsert(entity, e.schema, e.connector)
 }
 
 // Update starts a new UPDATE mutation
 func (e *Engine) Update(entity string) UpdateMutation {
-	e.ensureSchemaLoaded()
-	e.ensureConnected()
+	if e.schema == nil {
+		return newInvalidUpdateMutation(fmt.Errorf("schema not loaded - call LoadSchemaFromFile first"))
+	}
+	if e.connector == nil {
+		return newInvalidUpdateMutation(fmt.Errorf("not connected - call Connect() first"))
+	}
 
 	factory := getMutationFactory()
+	if factory == nil {
+		return newInvalidUpdateMutation(fmt.Errorf("no mutation factory registered"))
+	}
 	return factory.NewUpdate(entity, e.schema, e.connector)
 }
 
 // Delete starts a new DELETE mutation
 func (e *Engine) Delete(entity string) DeleteMutation {
-	e.ensureSchemaLoaded()
-	e.ensureConnected()
+	if e.schema == nil {
+		return newInvalidDeleteMutation(fmt.Errorf("schema not loaded - call LoadSchemaFromFile first"))
+	}
+	if e.connector == nil {
+		return newInvalidDeleteMutation(fmt.Errorf("not connected - call Connect() first"))
+	}
 
 	factory := getMutationFactory()
+	if factory == nil {
+		return newInvalidDeleteMutation(fmt.Errorf("no mutation factory registered"))
+	}
 	return factory.NewDelete(entity, e.schema, e.connector)
 }
 
@@ -232,16 +250,4 @@ func (s *Schema) GetEntity(name string) *Entity {
 		}
 	}
 	return nil
-}
-
-func (e *Engine) ensureSchemaLoaded() {
-	if e.schema == nil {
-		panic("schema not loaded - call LoadSchemaFromFile first")
-	}
-}
-
-func (e *Engine) ensureConnected() {
-	if e.connector == nil {
-		panic("not connected - call Connect() first")
-	}
 }

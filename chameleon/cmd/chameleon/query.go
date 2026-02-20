@@ -27,11 +27,13 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		entity := args[0]
 
-		// Setup engine
+		// Setup engine.
 		eng := engine.NewEngine()
-		eng.LoadSchemaFromFile("schema.cham")
+		if _, err := eng.LoadSchemaFromFile("schema.cham"); err != nil {
+			return fmt.Errorf("failed to load schema: %w", err)
+		}
 
-		// Set debug level
+		// Set debug level.
 		if queryExplain {
 			eng.Debug.Level = engine.DebugExplain
 		} else if queryTrace {
@@ -40,13 +42,15 @@ Examples:
 			eng.Debug.Level = engine.DebugSQL
 		}
 
-		// Connect
+		// Connect.
 		config := getConfigFromEnv()
 		ctx := context.Background()
-		eng.Connect(ctx, config)
+		if err := eng.Connect(ctx, config); err != nil {
+			return fmt.Errorf("failed to connect: %w", err)
+		}
 		defer eng.Close()
 
-		// Execute query
+		// Execute query.
 		result, err := eng.Query(entity).Execute(ctx)
 		if err != nil {
 			return err

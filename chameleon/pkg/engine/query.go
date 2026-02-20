@@ -79,8 +79,8 @@ type QueryBuilder struct {
 	query      QueryJSON
 	entityName string
 
-	// Debug override (optional)
-	debugLevel *DebugLevel // nil = use engine default
+	// debugLevel overrides the engine debug level for this query.
+	debugLevel *DebugLevel
 }
 
 // Query starts a new query for the given entity
@@ -149,32 +149,27 @@ func (qb *QueryBuilder) Offset(n uint64) *QueryBuilder {
 	return qb
 }
 
-// ToSQL generates SQL without executing
-// Useful for debugging and testing
+// ToSQL generates SQL without executing.
 func (qb *QueryBuilder) ToSQL() (*GeneratedSQL, error) {
 	if qb.engine.schema == nil {
 		return nil, fmt.Errorf("no schema loaded")
 	}
 
-	// Serialize query
 	queryJSON, err := json.Marshal(qb.query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize query: %w", err)
 	}
 
-	// Serialize schema
 	schemaJSON, err := json.Marshal(qb.engine.schema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize schema: %w", err)
 	}
 
-	// Call Rust SQL generator via FFI
 	resultJSON, err := ffi.GenerateSQL(string(queryJSON), string(schemaJSON))
 	if err != nil {
 		return nil, fmt.Errorf("SQL generation failed: %w", err)
 	}
 
-	// Parse result
 	var result GeneratedSQL
 	if err := json.Unmarshal([]byte(resultJSON), &result); err != nil {
 		return nil, fmt.Errorf("failed to parse generated SQL: %w", err)
@@ -184,7 +179,6 @@ func (qb *QueryBuilder) ToSQL() (*GeneratedSQL, error) {
 }
 
 // Execute generates SQL and runs it against the database
-// Execute generates SQL and runs it against the database
 func (qb *QueryBuilder) Execute(ctx context.Context) (*QueryResult, error) {
 	if qb.engine.executor == nil {
 		return nil, fmt.Errorf("executor not initialized - call engine.Connect() first")
@@ -192,23 +186,19 @@ func (qb *QueryBuilder) Execute(ctx context.Context) (*QueryResult, error) {
 
 	start := time.Now()
 
-	// Generate SQL
 	generated, err := qb.ToSQL()
 	if err != nil {
 		return nil, err
 	}
 
-	// Debug: Log SQL before execution
 	debugCtx := qb.getDebugContext()
 	debugCtx.LogSQL(generated.MainQuery)
 
-	// Execute via Executor (which handles everything: main query + eager loading)
 	result, err := qb.engine.executor.Execute(ctx, qb)
 	if err != nil {
 		return nil, err
 	}
 
-	// Debug: Log trace
 	duration := time.Since(start)
 	debugCtx.LogQuery(generated.MainQuery, duration, len(result.Rows))
 
@@ -227,7 +217,6 @@ func (qb *QueryBuilder) Select(fields ...string) *QueryBuilder {
 	return qb
 }
 
-// --- Debugging ---
 // Debug enables debug mode for this query
 func (qb *QueryBuilder) Debug() *QueryBuilder {
 	level := DebugSQL
@@ -243,14 +232,19 @@ func (qb *QueryBuilder) DebugTrace() *QueryBuilder {
 }
 
 func (qb *QueryBuilder) getDebugContext() *DebugContext {
+	base := qb.engine.Debug
+	if base == nil {
+		base = DefaultDebugContext()
+	}
+
 	if qb.debugLevel != nil {
 		return &DebugContext{
 			Level:       *qb.debugLevel,
-			Writer:      qb.engine.Debug.Writer,
-			ColorOutput: qb.engine.Debug.ColorOutput,
+			Writer:      base.Writer,
+			ColorOutput: base.ColorOutput,
 		}
 	}
-	return qb.engine.Debug
+	return base
 }
 
 // --- Helpers ---

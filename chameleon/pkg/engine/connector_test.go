@@ -105,6 +105,31 @@ func TestExtractIDsMissingField(t *testing.T) {
 	}
 }
 
+func TestInferEntityNameFromRelation(t *testing.T) {
+	if got := inferEntityNameFromRelation("posts"); got != "Post" {
+		t.Errorf("Expected Post, got %s", got)
+	}
+
+	if got := inferEntityNameFromRelation("orders.items"); got != "Item" {
+		t.Errorf("Expected Item, got %s", got)
+	}
+}
+
+func TestRelationParentPath(t *testing.T) {
+	parent, ok := relationParentPath("orders.items")
+	if !ok {
+		t.Fatal("Expected nested relation to have parent path")
+	}
+	if parent != "orders" {
+		t.Errorf("Expected parent orders, got %s", parent)
+	}
+
+	_, ok = relationParentPath("orders")
+	if ok {
+		t.Error("Expected top-level relation to have no parent path")
+	}
+}
+
 func TestRowHelpers(t *testing.T) {
 	row := Row{
 		"name":  "Ana",

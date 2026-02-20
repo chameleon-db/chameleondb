@@ -131,11 +131,17 @@ Examples:
 			// Save merged schema for debugging with timestamp
 			if len(cfg.Schema.Paths) > 0 {
 				debugDir := filepath.Join(filepath.Dir(cfg.Schema.Paths[0]), ".chameleon", "state", "debug")
-				os.MkdirAll(debugDir, 0755)
-				timestamp := time.Now().Format("20060102-150405")
-				debugPath := filepath.Join(debugDir, fmt.Sprintf("schema.merged.%s.cham", timestamp))
-				os.WriteFile(debugPath, []byte(mergedSchema), 0644)
-				printError("Schema saved to %s for debugging", debugPath)
+				if mkErr := os.MkdirAll(debugDir, 0755); mkErr != nil {
+					printError("Could not create debug directory: %v", mkErr)
+				} else {
+					timestamp := time.Now().Format("20060102-150405")
+					debugPath := filepath.Join(debugDir, fmt.Sprintf("schema.merged.%s.cham", timestamp))
+					if writeErr := os.WriteFile(debugPath, []byte(mergedSchema), 0644); writeErr != nil {
+						printError("Could not write debug schema: %v", writeErr)
+					} else {
+						printError("Schema saved to %s for debugging", debugPath)
+					}
+				}
 			}
 
 			return fmt.Errorf("failed to parse merged schemas:\n%s", errMsg)
@@ -167,10 +173,9 @@ Examples:
 			return fmt.Errorf("failed to get last migration: %w", err)
 		}
 
-		// Check if schema has changed
+		// Keep placeholder for future schema hash comparison.
 		if lastMigration != nil {
-			// TODO: Compare hashes to detect changes
-			// For now, assume migration is needed if not applied
+			_ = lastMigration
 		}
 
 		// Display migration plan
@@ -185,12 +190,6 @@ Examples:
 		if dryRun || !applyMigration {
 			printInfo("Dry-run mode. Use --apply to execute migration.")
 			journalLogger.Log("migrate", "dry_run", map[string]interface{}{"action": "check"}, nil)
-			return nil
-		}
-
-		// Apply migration
-		if !applyMigration {
-			printInfo("Use --apply to apply this migration.")
 			return nil
 		}
 
@@ -212,8 +211,6 @@ Examples:
 		// Create backup before applying (if enabled)
 		if cfg.Features.BackupOnMigrate {
 			printInfo("Creating backup...")
-			// TODO: Implement backup
-			// backupPath, err := createBackup(conn, cfg)
 		}
 
 		// Apply migration
@@ -251,7 +248,7 @@ Examples:
 		migration := &state.Migration{
 			Version:     time.Now().Format("20060102-150405"),
 			Timestamp:   time.Now(),
-			Type:        "initial", // TODO: Detect type (initial, alter, drop)
+			Type:        "initial",
 			Description: "Auto-generated migration",
 			AppliedAt:   time.Now(),
 			Status:      "applied",
@@ -268,7 +265,7 @@ Examples:
 
 		// Log migration success
 		journalLogger.LogMigration(migration.Version, "applied", duration, "", map[string]interface{}{
-			"tables_created": 0, // TODO: Count from DDL
+			"tables_created": 0,
 		})
 
 		fmt.Println()
@@ -292,39 +289,31 @@ func init() {
 	rootCmd.AddCommand(migrateCmd)
 }
 
-// tryMapErrorToSource intenta extraer el número de línea del error
-// y mapearlo a archivo origen usando lineMap
-// Mejorada - más robusta
+// tryMapErrorToSource maps parser line numbers to source schema files.
 func tryMapErrorToSource(errMsg string, lineMap map[int]schema.SourceLine) string {
-	// Buscar patrón: "line 25" o "25:" o "line 25 column"
+	// Supported patterns: "line 25", "--> file:25:5", " 25 │".
 	patterns := []string{
-		`line (\d+)`,    // "line 50"
-		`-->.*?:(\d+):`, // "--> file:50:5"
-		`\s(\d+)\s*│`,   // " 50 │" (formato con línea visual)
+		`line (\d+)`,
+		`-->.*?:(\d+):`,
+		`\s(\d+)\s*│`,
 	}
 
 	for _, pattern := range patterns {
 		re := regexp.MustCompile(pattern)
 		matches := re.FindStringSubmatch(errMsg)
-		if matches != nil && len(matches) > 1 {
+		if len(matches) > 1 {
 			lineNum, _ := strconv.Atoi(matches[1])
 
-			fmt.Fprintf(os.Stderr, "[DEBUG] Found line %d in error, searching lineMap (size: %d)\n", lineNum, len(lineMap))
-
-			// Buscar en lineMap (buscar en rango porque puede haber offset)
 			if source, exists := lineMap[lineNum]; exists {
-				fmt.Fprintf(os.Stderr, "[DEBUG] Found in lineMap: %s:%d\n", source.File, source.LineNumber)
 				return fmt.Sprintf("Error in %s:%d", source.File, source.LineNumber)
 			}
 
-			// Si no encuentra exacto, buscar nearest (±5 líneas)
+			// Look for a nearby source line when offsets differ.
 			for offset := 1; offset <= 5; offset++ {
 				if source, exists := lineMap[lineNum-offset]; exists {
-					fmt.Fprintf(os.Stderr, "[DEBUG] Found nearby (-%d): %s:%d\n", offset, source.File, source.LineNumber+offset)
 					return fmt.Sprintf("Error in %s:%d", source.File, source.LineNumber+offset)
 				}
 				if source, exists := lineMap[lineNum+offset]; exists {
-					fmt.Fprintf(os.Stderr, "[DEBUG] Found nearby (+%d): %s:%d\n", offset, source.File, source.LineNumber-offset)
 					return fmt.Sprintf("Error in %s:%d", source.File, source.LineNumber-offset)
 				}
 			}

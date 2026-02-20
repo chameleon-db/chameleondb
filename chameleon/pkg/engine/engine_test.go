@@ -1,8 +1,36 @@
 package engine
 
 import (
+	"context"
 	"testing"
 )
+
+func TestEngineInsertWithoutSchemaReturnsError(t *testing.T) {
+	eng := NewEngineWithoutSchema()
+
+	_, err := eng.Insert("User").Set("email", "test@mail.com").Execute(context.Background())
+	if err == nil {
+		t.Fatal("expected error when schema is not loaded")
+	}
+}
+
+func TestEngineUpdateWithoutSchemaReturnsError(t *testing.T) {
+	eng := NewEngineWithoutSchema()
+
+	_, err := eng.Update("User").Set("email", "new@mail.com").Filter("id", "eq", "1").Execute(context.Background())
+	if err == nil {
+		t.Fatal("expected error when schema is not loaded")
+	}
+}
+
+func TestEngineDeleteWithoutSchemaReturnsError(t *testing.T) {
+	eng := NewEngineWithoutSchema()
+
+	_, err := eng.Delete("User").Filter("id", "eq", "1").Execute(context.Background())
+	if err == nil {
+		t.Fatal("expected error when schema is not loaded")
+	}
+}
 
 func TestEngineLoadSchema(t *testing.T) {
 	engine := NewEngine()

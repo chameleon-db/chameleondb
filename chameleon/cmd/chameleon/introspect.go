@@ -38,7 +38,7 @@ Examples:
 			outputFile = "schema.cham"
 		}
 
-		// Validar y posiblemente cambiar el outputFile
+		// Validate output path and resolve final destination.
 		outputFile, err := validateAndGetOutputPath(outputFile)
 		if err != nil {
 			return err
@@ -213,7 +213,7 @@ func askOverwriteWithBackupAndGetOutput(filePath string) (string, error) {
 			printInfo(fmt.Sprintf("Auto-added .cham extension: %s", newPath))
 		}
 
-		// Validar recursivamente el nuevo path
+		// Validate the new path recursively.
 		return validateAndGetOutputPath(newPath)
 
 	case "3":
@@ -356,7 +356,7 @@ func askOverwriteWithBackup(filePath string) error {
 			return err
 		}
 		newPath = strings.TrimSpace(newPath)
-		// IMPORTANTE: Actualizar la variable global
+		// Keep the selected output path for this command execution.
 		introspectOutput = newPath
 		return nil
 

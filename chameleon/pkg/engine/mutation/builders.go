@@ -21,7 +21,7 @@ type InsertBuilder struct {
 	values    map[string]interface{}
 	config    engine.ValidatorConfig
 
-	// Debug settings
+	// debugLevel controls mutation debug verbosity.
 	debugLevel *engine.DebugLevel
 }
 
@@ -61,7 +61,6 @@ func (ib *InsertBuilder) Execute(ctx context.Context) (*engine.InsertResult, err
 	// Generate SQL
 	sql, orderedValues := ib.generateSQL()
 
-	// Debug output
 	if ib.shouldDebug() {
 		fmt.Printf("[ENTITY] INSERT INTO %s\n", ib.entity)
 		fmt.Printf("[SQL] %s\n", sql)
@@ -75,14 +74,11 @@ func (ib *InsertBuilder) Execute(ctx context.Context) (*engine.InsertResult, err
 	}
 	defer rows.Close()
 
-	// Parse RETURNING *
+	// Parse RETURNING *.
 	if !rows.Next() {
-		// Check for errors first
 		if err := rows.Err(); err != nil {
-			// ← AQUÍ está el error de UNIQUE violation
 			return nil, mapDatabaseError(err, ib.entity, "INSERT", ib.values)
 		}
-		// No rows and no error = problem
 		return nil, fmt.Errorf("INSERT executed but returned no rows (check required fields)")
 	}
 
@@ -91,14 +87,12 @@ func (ib *InsertBuilder) Execute(ctx context.Context) (*engine.InsertResult, err
 		return nil, fmt.Errorf("failed to scan result: %w", err)
 	}
 
-	// Build record map
 	record := make(map[string]interface{})
 	columns := rows.FieldDescriptions()
 	for i, col := range columns {
 		record[col.Name] = values[i]
 	}
 
-	// Extract ID
 	var id interface{}
 	if len(values) > 0 {
 		id = values[0]
@@ -217,7 +211,7 @@ type UpdateBuilder struct {
 	updates   map[string]interface{}
 	config    engine.ValidatorConfig
 
-	// Debug settings
+	// debugLevel controls mutation debug verbosity.
 	debugLevel *engine.DebugLevel
 	forceAll   bool
 }
@@ -268,9 +262,11 @@ func (ub *UpdateBuilder) Execute(ctx context.Context) (*engine.UpdateResult, err
 	}
 
 	// Generate SQL
-	sql, orderedValues := ub.generateSQL()
+	sql, orderedValues, err := ub.generateSQL()
+	if err != nil {
+		return nil, err
+	}
 
-	// Debug output
 	if ub.shouldDebug() {
 		fmt.Printf("\n[SQL] UPDATE %s\n%s\n", ub.entity, sql)
 		fmt.Printf("[VALUES] %v\n\n", orderedValues)
@@ -330,7 +326,7 @@ func (ub *UpdateBuilder) shouldTrace() bool {
 	return false
 }
 
-func (ub *UpdateBuilder) generateSQL() (string, []interface{}) {
+func (ub *UpdateBuilder) generateSQL() (string, []interface{}, error) {
 	tableName := entityToTableName(ub.entity)
 
 	var setClauses []string
@@ -350,6 +346,10 @@ func (ub *UpdateBuilder) generateSQL() (string, []interface{}) {
 		paramIndex++
 	}
 
+	if len(setClauses) == 0 {
+		return "", nil, fmt.Errorf("UPDATE requires at least one field to set")
+	}
+
 	// WHERE clauses - sort filters for consistent order
 	var whereFields []string
 	for filterKey := range ub.filters {
@@ -359,12 +359,25 @@ func (ub *UpdateBuilder) generateSQL() (string, []interface{}) {
 
 	var whereClauses []string
 	for _, filterKey := range whereFields {
-		parts := strings.Split(filterKey, ":")
+		parts := strings.SplitN(filterKey, ":", 2)
 		field := parts[0]
-		// For now, only support "eq" operator
-		whereClauses = append(whereClauses, fmt.Sprintf("%s = $%d", field, paramIndex))
+		op := "eq"
+		if len(parts) == 2 && parts[1] != "" {
+			op = parts[1]
+		}
+
+		sqlOp, err := mutationOperatorToSQL(op)
+		if err != nil {
+			return "", nil, err
+		}
+
+		whereClauses = append(whereClauses, fmt.Sprintf("%s %s $%d", field, sqlOp, paramIndex))
 		values = append(values, ub.filters[filterKey])
 		paramIndex++
+	}
+
+	if len(whereClauses) == 0 {
+		return "", nil, fmt.Errorf("UPDATE without filters is blocked")
 	}
 
 	sql := fmt.Sprintf(
@@ -374,13 +387,13 @@ func (ub *UpdateBuilder) generateSQL() (string, []interface{}) {
 		strings.Join(whereClauses, " AND "),
 	)
 
-	return sql, values
+	return sql, values, nil
 }
 
 func (ub *UpdateBuilder) parseFilters() map[string]interface{} {
 	result := make(map[string]interface{})
 	for key, value := range ub.filters {
-		parts := strings.Split(key, ":")
+		parts := strings.SplitN(key, ":", 2)
 		if len(parts) > 0 {
 			result[parts[0]] = value
 		}
@@ -400,7 +413,7 @@ type DeleteBuilder struct {
 	config         engine.ValidatorConfig
 	forceDeleteAll bool
 
-	// Debug settings
+	// debugLevel controls mutation debug verbosity.
 	debugLevel *engine.DebugLevel
 }
 
@@ -443,9 +456,11 @@ func (db *DeleteBuilder) Execute(ctx context.Context) (*engine.DeleteResult, err
 	}
 
 	// Generate SQL
-	sql, orderedValues := db.generateSQL()
+	sql, orderedValues, err := db.generateSQL()
+	if err != nil {
+		return nil, err
+	}
 
-	// Debug output
 	if db.shouldDebug() {
 		fmt.Printf("\n[SQL] DELETE FROM %s\n%s\n", db.entity, sql)
 		fmt.Printf("[VALUES] %v\n\n", orderedValues)
@@ -454,7 +469,6 @@ func (db *DeleteBuilder) Execute(ctx context.Context) (*engine.DeleteResult, err
 	// Execute via pgx
 	commandTag, err := db.connector.Pool().Exec(ctx, sql, orderedValues...)
 	if err != nil {
-		// ← CAMBIO: Map database error to ChameleonDB error
 		return nil, mapDatabaseError(err, db.entity, "DELETE", nil)
 	}
 
@@ -462,7 +476,6 @@ func (db *DeleteBuilder) Execute(ctx context.Context) (*engine.DeleteResult, err
 
 	duration := time.Since(start)
 
-	// Debug trace
 	if db.shouldTrace() {
 		fmt.Printf("[TRACE] DELETE on %s: %v, %d rows\n", db.entity, duration, affected)
 	}
@@ -486,7 +499,7 @@ func (db *DeleteBuilder) shouldTrace() bool {
 	return false
 }
 
-func (db *DeleteBuilder) generateSQL() (string, []interface{}) {
+func (db *DeleteBuilder) generateSQL() (string, []interface{}, error) {
 	tableName := entityToTableName(db.entity)
 
 	var whereClauses []string
@@ -494,11 +507,25 @@ func (db *DeleteBuilder) generateSQL() (string, []interface{}) {
 	paramIndex := 1
 
 	for filterKey, value := range db.filters {
-		parts := strings.Split(filterKey, ":")
+		parts := strings.SplitN(filterKey, ":", 2)
 		field := parts[0]
-		whereClauses = append(whereClauses, fmt.Sprintf("%s = $%d", field, paramIndex))
+		op := "eq"
+		if len(parts) == 2 && parts[1] != "" {
+			op = parts[1]
+		}
+
+		sqlOp, err := mutationOperatorToSQL(op)
+		if err != nil {
+			return "", nil, err
+		}
+
+		whereClauses = append(whereClauses, fmt.Sprintf("%s %s $%d", field, sqlOp, paramIndex))
 		values = append(values, value)
 		paramIndex++
+	}
+
+	if len(whereClauses) == 0 {
+		return "", nil, fmt.Errorf("DELETE without filters is blocked")
 	}
 
 	sql := fmt.Sprintf(
@@ -507,7 +534,7 @@ func (db *DeleteBuilder) generateSQL() (string, []interface{}) {
 		strings.Join(whereClauses, " AND "),
 	)
 
-	return sql, values
+	return sql, values, nil
 }
 
 func (db *DeleteBuilder) parseFilters() map[string]interface{} {
@@ -525,8 +552,8 @@ func (db *DeleteBuilder) parseFilters() map[string]interface{} {
 // UTILITIES
 // ============================================================
 
-// entityToTableName converts entity name to table name
-// Handles pluralization and snake_case conversion
+// entityToTableName converts entity names to table names.
+// It handles snake_case conversion and simple pluralization.
 //
 // Examples:
 //
@@ -534,10 +561,7 @@ func (db *DeleteBuilder) parseFilters() map[string]interface{} {
 //	OrderItem → order_items
 //	TodoList → todo_lists
 func entityToTableName(entity string) string {
-	// TODO: Use FFI call to Rust for proper naming
-	// For now, simple implementation:
-
-	// Convert PascalCase to snake_case
+	// Convert PascalCase to snake_case.
 	var result []rune
 	for i, r := range entity {
 		if i > 0 && r >= 'A' && r <= 'Z' {
@@ -548,15 +572,38 @@ func entityToTableName(entity string) string {
 
 	name := strings.ToLower(string(result))
 
-	// Check for irregular plural
+	// Apply irregular plural when available.
 	if plural, ok := irregularPlurals[name]; ok {
 		return plural
 	}
 
-	// Simple pluralization
+	// Apply regular pluralization.
 	if !strings.HasSuffix(name, "s") {
 		name += "s"
 	}
 
 	return name
+}
+
+func mutationOperatorToSQL(op string) (string, error) {
+	switch strings.ToLower(op) {
+	case "eq":
+		return "=", nil
+	case "neq", "ne":
+		return "!=", nil
+	case "gt":
+		return ">", nil
+	case "gte":
+		return ">=", nil
+	case "lt":
+		return "<", nil
+	case "lte":
+		return "<=", nil
+	case "like":
+		return "LIKE", nil
+	case "ilike":
+		return "ILIKE", nil
+	default:
+		return "", fmt.Errorf("unsupported filter operator: %s", op)
+	}
 }

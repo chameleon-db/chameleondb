@@ -415,7 +415,10 @@ func TestUpdateBuilder_GenerateSQL(t *testing.T) {
 	builder := NewUpdateBuilder(schema, mockConnector(), "User")
 	builder.Filter("id", "eq", "uuid-123").Set("name", "Ana")
 
-	sql, values := builder.generateSQL()
+	sql, values, err := builder.generateSQL()
+	if err != nil {
+		t.Fatalf("generateSQL should not fail: %v", err)
+	}
 
 	if sql == "" {
 		t.Error("SQL should be generated")
@@ -443,7 +446,10 @@ func TestDeleteBuilder_GenerateSQL(t *testing.T) {
 	builder := NewDeleteBuilder(schema, mockConnector(), "User")
 	builder.Filter("id", "eq", "uuid-123")
 
-	sql, values := builder.generateSQL()
+	sql, values, err := builder.generateSQL()
+	if err != nil {
+		t.Fatalf("generateSQL should not fail: %v", err)
+	}
 
 	if sql == "" {
 		t.Error("SQL should be generated")
@@ -459,6 +465,27 @@ func TestDeleteBuilder_GenerateSQL(t *testing.T) {
 
 	if !contains(sql, "WHERE") {
 		t.Error("SQL should have WHERE clause")
+	}
+}
+
+func TestUpdateBuilder_GenerateSQL_UnsupportedOperator(t *testing.T) {
+	schema := testSchema()
+	builder := NewUpdateBuilder(schema, mockConnector(), "User")
+	builder.Filter("id", "contains", "uuid-123").Set("name", "Ana")
+
+	_, _, err := builder.generateSQL()
+	if err == nil {
+		t.Fatal("generateSQL should fail for unsupported operator")
+	}
+}
+
+func TestDeleteBuilder_GenerateSQL_NoFilters(t *testing.T) {
+	schema := testSchema()
+	builder := NewDeleteBuilder(schema, mockConnector(), "User")
+
+	_, _, err := builder.generateSQL()
+	if err == nil {
+		t.Fatal("generateSQL should fail without filters")
 	}
 }
 
