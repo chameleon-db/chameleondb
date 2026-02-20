@@ -245,8 +245,8 @@ mod tests {
         assert_eq!(result.eager_queries[0].0, "orders");
         assert!(result.eager_queries[0].1.contains("FROM orders"));
 
-        // Second: items
-        assert_eq!(result.eager_queries[1].0, "items");
+        // Second: orders.items
+        assert_eq!(result.eager_queries[1].0, "orders.items");
         assert!(result.eager_queries[1].1.contains("FROM order_items"));
         assert!(result.eager_queries[1].1.contains("WHERE order_id IN ($PARENT_IDS)"));
     }

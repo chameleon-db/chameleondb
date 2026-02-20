@@ -10,9 +10,9 @@ import (
 )
 
 // TestInsert_UniqueConstraintViolation verifies unique constraint errors are mapped correctly.
-// This test validates the error mapping pipeline: PostgreSQL 23505 error code →
-// mapUniqueViolation() → extract field from error detail → UniqueConstraintError struct.
-func TestInsert_UniqueConstraintViolation(t *testing.T) {
+// This test validates the error mapping pipeline: PostgreSQL 23505 error code ->
+// mapUniqueViolation() -> extract field from error detail -> UniqueConstraintError struct.
+func Test_Insert_UniqueConstraintViolation(t *testing.T) {
 	skipIfNoDocker(t)
 
 	ctx := context.Background()
@@ -191,7 +191,7 @@ func TestInsert_UndefinedColumn(t *testing.T) {
 	_, err := eng.Insert("User").
 		Set("id", uuid.New().String()).
 		Set("email", "test@mail.com").
-		Set("unknown_field", "value"). // ← Doesn't exist in schema
+		Set("unknown_field", "value"). // Doesn't exist in schema
 		Execute(ctx)
 
 	// Should fail with UnknownFieldError

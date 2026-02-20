@@ -80,6 +80,11 @@ func (ex *Executor) Execute(ctx context.Context, qb *QueryBuilder) (*QueryResult
 		eagerRows = identityMap.Deduplicate(entityName, eagerRows)
 
 		relations[relName] = eagerRows
+		if leaf := relationLeafName(relName); leaf != relName {
+			if _, exists := relations[leaf]; !exists {
+				relations[leaf] = eagerRows
+			}
+		}
 		relationIDs[relName] = extractIDs(eagerRows, "id")
 	}
 
@@ -122,6 +127,14 @@ func relationParentPath(relName string) (string, bool) {
 		return "", false
 	}
 	return relName[:idx], true
+}
+
+func relationLeafName(relName string) string {
+	idx := strings.LastIndex(relName, ".")
+	if idx == -1 {
+		return relName
+	}
+	return relName[idx+1:]
 }
 
 // executeQuery runs a single SQL query and returns rows.

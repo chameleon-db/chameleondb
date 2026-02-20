@@ -366,6 +366,7 @@ fn build_eager_queries(
         build_eager_query_for_path(
             root_entity,
             &include.path,
+            "",
             schema,
             &mut queries,
             &mut processed,
@@ -379,6 +380,7 @@ fn build_eager_queries(
 fn build_eager_query_for_path(
     current_entity: &str,
     path: &[String],
+    parent_path: &str,
     schema: &Schema,
     queries: &mut Vec<(String, String)>,
     processed: &mut Vec<String>,
@@ -388,7 +390,11 @@ fn build_eager_query_for_path(
     }
 
     let rel_name = &path[0];
-    let full_path = format!("{}.{}", current_entity, rel_name);
+    let full_path = if parent_path.is_empty() {
+        rel_name.clone()
+    } else {
+        format!("{}.{}", parent_path, rel_name)
+    };
 
     // Skip if already processed
     if processed.contains(&full_path) {
@@ -399,6 +405,7 @@ fn build_eager_query_for_path(
             return build_eager_query_for_path(
                 &relation.target_entity,
                 &path[1..],
+                &full_path,
                 schema,
                 queries,
                 processed,
@@ -438,14 +445,15 @@ fn build_eager_query_for_path(
         fk,
     );
 
-    queries.push((rel_name.clone(), sql));
-    processed.push(full_path);
+    queries.push((full_path.clone(), sql));
+    processed.push(full_path.clone());
 
     // Process deeper paths
     if path.len() > 1 {
         build_eager_query_for_path(
             &relation.target_entity,
             &path[1..],
+            &full_path,
             schema,
             queries,
             processed,
