@@ -1,6 +1,6 @@
 [package]
 name = "chameleon-core"
-version = "0.2.3-alfa"
+version = "0.2.4-alfa"
 edition = "2021"
 
 [lib]
