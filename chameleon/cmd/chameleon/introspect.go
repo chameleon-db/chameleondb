@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/chameleon-db/chameleondb/chameleon/internal/admin"
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine/introspect"
+	"github.com/chameleon-db/chameleondb/chameleon/pkg/vault"
 	"github.com/spf13/cobra"
 )
 
@@ -30,6 +33,7 @@ Examples:
   chameleon introspect postgresql://... --force  # Overwrite existing schema`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		startedAt := time.Now()
 		connStr := args[0]
 
 		outputFile := introspectOutput
@@ -37,9 +41,56 @@ Examples:
 			outputFile = "schema.cham"
 		}
 
-		// Validate output path and resolve final destination.
-		outputFile, err := validateAndGetOutputPath(outputFile)
+		workDir, err := os.Getwd()
 		if err != nil {
+			return fmt.Errorf("failed to get working directory: %w", err)
+		}
+
+		factory := admin.NewManagerFactory(workDir)
+		journalLogger, err := factory.CreateJournalLogger()
+		if err != nil {
+			return fmt.Errorf("failed to initialize journal: %w", err)
+		}
+
+		baseDetails := map[string]interface{}{
+			"output": outputFile,
+			"force":  introspectForce,
+		}
+		_ = journalLogger.Log("introspect", "started", baseDetails, nil)
+
+		v := vault.NewVault(workDir)
+		if v.Exists() {
+			mode, modeErr := v.GetParanoidMode()
+			if modeErr != nil {
+				_ = journalLogger.LogError("introspect", modeErr, map[string]interface{}{"action": "read_mode"})
+				return fmt.Errorf("failed to read vault mode: %w", modeErr)
+			}
+
+			if mode == "readonly" {
+				printError("Read Only mode is active - introspection is blocked")
+				fmt.Println()
+				printInfo("Mode upgrade available:")
+				fmt.Println("   1. Run: chameleon config set mode=standard")
+				fmt.Println("   2. Retry: chameleon introspect <database-url>")
+				fmt.Println()
+				_ = journalLogger.Log("introspect", "aborted_readonly", map[string]interface{}{
+					"mode":   mode,
+					"output": outputFile,
+				}, nil)
+				return fmt.Errorf("readonly mode: introspect is blocked")
+			}
+
+			printInfo("Vault mode active: %s", mode)
+			_ = journalLogger.Log("introspect", "mode_checked", map[string]interface{}{"mode": mode}, nil)
+		} else {
+			printWarning("Schema Vault not initialized; paranoid mode check skipped")
+			_ = journalLogger.Log("introspect", "mode_check_skipped", map[string]interface{}{"reason": "vault_not_initialized"}, nil)
+		}
+
+		// Validate output path and resolve final destination.
+		outputFile, err = validateAndGetOutputPath(outputFile)
+		if err != nil {
+			_ = journalLogger.LogError("introspect", err, map[string]interface{}{"action": "validate_output"})
 			return err
 		}
 
@@ -50,6 +101,7 @@ Examples:
 		// Create introspector using the connection scheme.
 		inspector, err := introspect.NewIntrospector(ctx, connStr)
 		if err != nil {
+			_ = journalLogger.LogError("introspect", err, map[string]interface{}{"action": "create_introspector"})
 			return fmt.Errorf("failed to create introspector: %w", err)
 		}
 		defer inspector.Close()
@@ -57,34 +109,49 @@ Examples:
 		// Verify database connectivity and engine detection.
 		detected, err := inspector.Detect(ctx)
 		if err != nil {
+			_ = journalLogger.LogError("introspect", err, map[string]interface{}{"action": "detect_database"})
 			return fmt.Errorf("failed to detect database: %w", err)
 		}
 		if !detected {
-			return fmt.Errorf("failed to connect or detect database type")
+			detectErr := fmt.Errorf("failed to connect or detect database type")
+			_ = journalLogger.LogError("introspect", detectErr, map[string]interface{}{"action": "detect_database"})
+			return detectErr
 		}
 
 		printSuccess("Database detected")
+		_ = journalLogger.Log("introspect", "database_detected", nil, nil)
 
 		// Introspect all user tables.
 		printInfo("Scanning tables...")
 		tables, err := inspector.GetAllTables(ctx)
 		if err != nil {
+			_ = journalLogger.LogError("introspect", err, map[string]interface{}{"action": "scan_tables"})
 			return fmt.Errorf("introspection failed: %w", err)
 		}
 
 		printSuccess(fmt.Sprintf("Found %d table(s)", len(tables)))
+		_ = journalLogger.Log("introspect", "tables_scanned", map[string]interface{}{"tables": len(tables)}, nil)
 
 		// Generate schema output.
 		printInfo("Generating schema...")
 		schema, err := introspect.GenerateChameleonSchema(tables)
 		if err != nil {
+			_ = journalLogger.LogError("introspect", err, map[string]interface{}{"action": "generate_schema"})
 			return fmt.Errorf("schema generation failed: %w", err)
 		}
 
 		// Write schema output with overwrite safety checks.
 		if err := safeWriteSchema(outputFile, schema); err != nil {
+			_ = journalLogger.LogError("introspect", err, map[string]interface{}{"action": "write_schema", "output": outputFile})
 			return err
 		}
+
+		durationMs := time.Since(startedAt).Milliseconds()
+		_ = journalLogger.Log("introspect", "completed", map[string]interface{}{
+			"output":      outputFile,
+			"tables":      len(tables),
+			"duration_ms": durationMs,
+		}, nil)
 
 		printSuccess(fmt.Sprintf("Schema written to %s", outputFile))
 		printInfo("\nNext steps:")
