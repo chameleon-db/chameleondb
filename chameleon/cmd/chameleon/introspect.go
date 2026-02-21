@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,6 +19,8 @@ var (
 	introspectOutput string
 	introspectForce  bool
 )
+
+var envVarNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 var introspectCmd = &cobra.Command{
 	Use:   "introspect <database-url>",
@@ -34,7 +37,10 @@ Examples:
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		startedAt := time.Now()
-		connStr := args[0]
+		connStr, err := resolveIntrospectConnectionString(args[0])
+		if err != nil {
+			return err
+		}
 
 		outputFile := introspectOutput
 		if outputFile == "" {
@@ -63,15 +69,16 @@ Examples:
 			mode, modeErr := v.GetParanoidMode()
 			if modeErr != nil {
 				_ = journalLogger.LogError("introspect", modeErr, map[string]interface{}{"action": "read_mode"})
-				return fmt.Errorf("failed to read vault mode: %w", modeErr)
+				return fmt.Errorf("failed to read paranoid mode: %w", modeErr)
 			}
 
 			if mode == "readonly" {
-				printError("Read Only mode is active - introspection is blocked")
+				printError("Read Only Paranoid Mode is active - introspection is blocked")
 				fmt.Println()
 				printInfo("Mode upgrade available:")
-				fmt.Println("   1. Run: chameleon config set mode=standard")
-				fmt.Println("   2. Retry: chameleon introspect <database-url>")
+				fmt.Println("   1. Run: chameleon config auth set-password")
+				fmt.Println("   2. Run: chameleon config set mode=standard")
+				fmt.Println("   3. Retry: chameleon introspect <database-url>")
 				fmt.Println()
 				_ = journalLogger.Log("introspect", "aborted_readonly", map[string]interface{}{
 					"mode":   mode,
@@ -80,7 +87,7 @@ Examples:
 				return fmt.Errorf("readonly mode: introspect is blocked")
 			}
 
-			printInfo("Vault mode active: %s", mode)
+			printInfo("Paranoid Mode active: %s", mode)
 			_ = journalLogger.Log("introspect", "mode_checked", map[string]interface{}{"mode": mode}, nil)
 		} else {
 			printWarning("Schema Vault not initialized; paranoid mode check skipped")
@@ -161,6 +168,43 @@ Examples:
 
 		return nil
 	},
+}
+
+func resolveIntrospectConnectionString(input string) (string, error) {
+	connStr := strings.TrimSpace(input)
+	if connStr == "" {
+		return "", fmt.Errorf("database-url cannot be empty")
+	}
+
+	if strings.HasPrefix(connStr, "env:") {
+		envName := strings.TrimSpace(strings.TrimPrefix(connStr, "env:"))
+		return resolveConnectionStringFromEnv(envName)
+	}
+
+	if strings.HasPrefix(connStr, "${") && strings.HasSuffix(connStr, "}") {
+		envName := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(connStr, "${"), "}"))
+		return resolveConnectionStringFromEnv(envName)
+	}
+
+	if strings.HasPrefix(connStr, "$") {
+		envName := strings.TrimSpace(strings.TrimPrefix(connStr, "$"))
+		return resolveConnectionStringFromEnv(envName)
+	}
+
+	return connStr, nil
+}
+
+func resolveConnectionStringFromEnv(envName string) (string, error) {
+	if !envVarNamePattern.MatchString(envName) {
+		return "", fmt.Errorf("invalid environment variable name %q", envName)
+	}
+
+	value := strings.TrimSpace(os.Getenv(envName))
+	if value == "" {
+		return "", fmt.Errorf("environment variable %s is not set or empty", envName)
+	}
+
+	return value, nil
 }
 
 // validateAndGetOutputPath validates and returns the final output path.

@@ -88,3 +88,65 @@ func TestCopyFileAndSafeWriteSchema(t *testing.T) {
 		t.Fatalf("expected output file to exist: %v", err)
 	}
 }
+
+func TestResolveIntrospectConnectionString(t *testing.T) {
+	t.Run("returns literal connection string", func(t *testing.T) {
+		got, err := resolveIntrospectConnectionString("postgresql://user:pass@localhost:5432/db")
+		if err != nil {
+			t.Fatalf("resolveIntrospectConnectionString() error = %v", err)
+		}
+		if got != "postgresql://user:pass@localhost:5432/db" {
+			t.Fatalf("unexpected connection string: %q", got)
+		}
+	})
+
+	t.Run("resolves dollar env reference", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgresql://railway:pass@host:5432/db")
+
+		got, err := resolveIntrospectConnectionString("$DATABASE_URL")
+		if err != nil {
+			t.Fatalf("resolveIntrospectConnectionString() error = %v", err)
+		}
+		if got != "postgresql://railway:pass@host:5432/db" {
+			t.Fatalf("unexpected connection string: %q", got)
+		}
+	})
+
+	t.Run("resolves bracket env reference", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgresql://railway:pass@host:5432/db")
+
+		got, err := resolveIntrospectConnectionString("${DATABASE_URL}")
+		if err != nil {
+			t.Fatalf("resolveIntrospectConnectionString() error = %v", err)
+		}
+		if got != "postgresql://railway:pass@host:5432/db" {
+			t.Fatalf("unexpected connection string: %q", got)
+		}
+	})
+
+	t.Run("resolves env prefix reference", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgresql://railway:pass@host:5432/db")
+
+		got, err := resolveIntrospectConnectionString("env:DATABASE_URL")
+		if err != nil {
+			t.Fatalf("resolveIntrospectConnectionString() error = %v", err)
+		}
+		if got != "postgresql://railway:pass@host:5432/db" {
+			t.Fatalf("unexpected connection string: %q", got)
+		}
+	})
+
+	t.Run("fails when env var is missing", func(t *testing.T) {
+		_, err := resolveIntrospectConnectionString("$DOES_NOT_EXIST")
+		if err == nil {
+			t.Fatal("expected error for missing environment variable")
+		}
+	})
+
+	t.Run("fails when env var name is invalid", func(t *testing.T) {
+		_, err := resolveIntrospectConnectionString("$1INVALID")
+		if err == nil {
+			t.Fatal("expected error for invalid environment variable name")
+		}
+	})
+}

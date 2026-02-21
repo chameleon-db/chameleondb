@@ -13,6 +13,13 @@ import (
 
 const modePasswordEnvVar = "CHAMELEON_MODE_PASSWORD"
 
+var paranoidModeRank = map[string]int{
+	"readonly":   0,
+	"standard":   1,
+	"privileged": 2,
+	"emergency":  3,
+}
+
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "Manage local ChameleonDB configuration",
@@ -64,11 +71,12 @@ Examples:
 				targetMode = "privileged"
 			}
 
-			if requiresModeAuth(targetMode) {
+			if requiresModeAuth(previousMode, targetMode) {
 				if !v.HasModePassword() {
 					if journalLogger != nil {
 						_ = journalLogger.Log("config_mode", "denied", map[string]interface{}{
 							"reason":      "mode_password_not_configured",
+							"from_mode":   previousMode,
 							"target_mode": targetMode,
 						}, nil)
 					}
@@ -94,6 +102,7 @@ Examples:
 					if journalLogger != nil {
 						_ = journalLogger.Log("config_mode", "denied", map[string]interface{}{
 							"reason":      "invalid_mode_password",
+							"from_mode":   previousMode,
 							"target_mode": targetMode,
 						}, nil)
 					}
@@ -106,11 +115,11 @@ Examples:
 				}
 			}
 
-			if err := v.SetParanoidMode(value); err != nil {
+			if err := v.SetParanoidMode(targetMode); err != nil {
 				if journalLogger != nil {
 					_ = journalLogger.LogError("config_mode", err, map[string]interface{}{
 						"from_mode":   previousMode,
-						"target_mode": value,
+						"target_mode": targetMode,
 					})
 				}
 				return err
@@ -128,7 +137,7 @@ Examples:
 				}, nil)
 			}
 
-			printSuccess("Vault mode updated: %s", mode)
+			printSuccess("Paranoid Mode updated: %s", mode)
 			return nil
 		default:
 			return fmt.Errorf("unsupported key %q (supported: mode)", key)
@@ -143,10 +152,9 @@ var configAuthCmd = &cobra.Command{
 
 var configAuthSetPasswordCmd = &cobra.Command{
 	Use:   "set-password",
-	Short: "Set or rotate admin password for privileged mode changes",
-	Long: `Set or rotate the local admin password required for:
-  - chameleon config set mode=privileged
-  - chameleon config set mode=emergency
+	Short: "Set or rotate admin password for mode upgrades",
+	Long: `Set or rotate the local admin password required for paranoid mode upgrades
+(for example: readonly -> standard, standard -> privileged, privileged -> emergency).
 
 Tip: for non-interactive usage, set CHAMELEON_MODE_PASSWORD.`,
 	Args: cobra.NoArgs,
@@ -230,8 +238,23 @@ func init() {
 	rootCmd.AddCommand(configCmd)
 }
 
-func requiresModeAuth(mode string) bool {
-	return mode == "privileged" || mode == "emergency"
+func canonicalParanoidMode(mode string) string {
+	clean := strings.ToLower(strings.TrimSpace(mode))
+	if clean == "admin" {
+		return "privileged"
+	}
+
+	return clean
+}
+
+func requiresModeAuth(currentMode, targetMode string) bool {
+	currentRank, currentOK := paranoidModeRank[canonicalParanoidMode(currentMode)]
+	targetRank, targetOK := paranoidModeRank[canonicalParanoidMode(targetMode)]
+	if !currentOK || !targetOK {
+		return false
+	}
+
+	return targetRank > currentRank
 }
 
 func readModePassword() (string, error) {

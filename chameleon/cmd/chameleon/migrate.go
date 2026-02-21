@@ -138,21 +138,22 @@ Examples:
 				mode, modeErr := v.GetParanoidMode()
 				if modeErr != nil {
 					journalLogger.LogError("migrate", modeErr, map[string]interface{}{"action": "read_mode"})
-					return fmt.Errorf("failed to read vault mode: %w", modeErr)
+					return fmt.Errorf("failed to read paranoid mode: %w", modeErr)
 				}
 
 				if mode == "readonly" {
-					printError("Read Only mode is active - schema modifications are blocked")
+					printError("Read Only Paranoid Mode is active - schema modifications are blocked")
 					fmt.Println()
 					printInfo("To override (not recommended):")
-					fmt.Println("   1. Set paranoia mode: chameleon config set mode=standard")
-					fmt.Println("   2. Fix integrity issues first")
+					fmt.Println("   1. Set mode password: chameleon config auth set-password")
+					fmt.Println("   2. Upgrade paranoid mode: chameleon config set mode=standard")
+					fmt.Println("   3. Fix integrity issues first")
 					fmt.Println()
 					journalLogger.Log("migrate", "aborted_readonly", logDetails, nil)
 					return fmt.Errorf("readonly mode: schema locked")
 				}
 
-				printInfo("Vault mode active: %s", mode)
+				printInfo("Paranoid Mode active: %s", mode)
 			}
 		} else {
 			printInfo("No schema versions registered yet")
