@@ -2,12 +2,12 @@
 
 ![ChameleonDB](docs/logo-200x150.png)
 
-*Type-safe, graph-oriented database access without the magic*
+*Schema-governed database platform with explicit integrity guarantees*
 
 [![License: Apache](https://img.shields.io/badge/license-Apache%20License%202.0-blue)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![Go Version](https://img.shields.io/badge/go-1.21%2B-00ADD8.svg)](https://golang.org)
-[![Status](https://img.shields.io/badge/status-beta-yellow)](https://github.com/chameleon-db/chameleondb)
+[![Status](https://img.shields.io/badge/status-v1.0--alpha-green)](https://github.com/chameleon-db/chameleondb)
 
 [Documentation](https://chameleondb.dev/docs) • [Examples](https://github.com/chameleon-db/chameleon-examples) • [Discord](https://chameleondb.dev/discord)
 
@@ -15,10 +15,16 @@
 
 ---
 
-## ⚠️ Beta Notice
+## ⚡ v1.0-alpha Released!
 
-ChameleonDB is in **beta** (v1.0-beta). Core features are stable, API may have minor changes. 
-Production-ready for evaluation and non-critical workloads.
+ChameleonDB **v1.0-alpha** is now available with **Schema Vault** and **Integrity Modes** — explicit schema governance built into the database layer.
+
+**What's new:**
+- 🔐 **Schema Vault**: Versioned, hash-verified schema storage
+- 🛡️ **Integrity Modes**: Ring-based governance (readonly/standard/privileged/emergency)
+- ✅ **IdentityMap**: Automatic object deduplication in memory
+- 📊 **Complete audit trail**: Append-only integrity log
+- 🚀 **Zero-config**: Auto-initialization on first migrate
 
 **Early adopters welcome** — your feedback shapes the product.
 
@@ -26,24 +32,24 @@ Production-ready for evaluation and non-critical workloads.
 
 ## Overview
 
-ChameleonDB is a **graph-oriented, strongly-typed database access layer** that brings compile-time safety to database queries.
+ChameleonDB is a **schema-governed database platform** that treats schemas as first-class, immutable artifacts with explicit integrity guarantees.
 
-Instead of writing SQL or dealing with ORM magic, you define a schema once and navigate relationships naturally.
+Unlike traditional databases that treat schema evolution as an auxiliary concern, ChameleonDB **governs schemas at runtime** through versioning, cryptographic integrity, and explicit operational modes.
 
 ### The Problem
 
-Traditional database access has friction:
+Modern database systems enforce strong guarantees over data but treat schema evolution informally:
 
-- **SQL** requires manual JOINs and is error-prone
-- **ORMs** hide behavior and have runtime errors
-- **Type-safety** is missing at the query level
-- **N+1 queries** are easy to introduce accidentally
-- **Debugging** complex queries is painful
+- **Schema drift** happens silently over time
+- **Migration failures** leave databases in unknown states
+- **Authority** for schema changes is implicit, not enforced
+- **Audit trails** are external, incomplete, or missing
+- **Rollback** is manual and error-prone
 
 ### The ChameleonDB Solution
 
-**1. Define your schema** (or import from existing database)
-```chameleon
+**1. Define your schema** (versioned and hash-verified)
+```go
 entity User {
     id: uuid primary,
     email: string unique,
@@ -61,64 +67,67 @@ entity Post {
 }
 ```
 
-**2. Write natural queries with field projection**
-```go
-// Query only the fields you need
-users := db.Query("User").
-    Select("id", "name", "email").  // Partial selection
-    Filter("age", "gt", 25).
-    Include("posts").                // Eager load relations
-    Execute(ctx)
+**2. Initialize with zero config** (auto-creates Schema Vault)
+```bash
+chameleon init                  # Creates .chameleon/vault/
+chameleon migrate --apply       # Registers v001, applies migration
 ```
 
-**3. See exactly what runs** (Debug Mode)
-```go
-// Enable debug to see generated SQL
-users := db.Query("User").
-    Select("id", "name").
-    Filter("email", "like", "ana").
-    Debug().  // Shows SQL before execution
-    Execute(ctx)
+**3. Schema Vault tracks everything**
+```
+.chameleon/vault/
+├── manifest.json       # Current version + history
+├── integrity.log       # Append-only audit trail
+├── versions/
+│   ├── v001.json      # Immutable snapshot
+│   └── v002.json
+└── hashes/
+    ├── v001.hash      # SHA256 verification
+    └── v002.hash
 ```
 
-Output:
-```sql
-[SQL] Query User
-SELECT id, name FROM users WHERE email LIKE '%ana%'
+**4. Integrity enforcement** (automatic verification)
+```bash
+# Every migrate checks integrity
+$ chameleon migrate
 
-[TRACE] Query on User: 2.3ms, 3 rows
+🔍 Verifying schema integrity...
+   ✓ Current: v001 (3f2a8b9c...)
+   ✓ No tampering detected
+
+# If someone modifies vault files
+❌ INTEGRITY VIOLATION DETECTED
+   • v001.json: hash mismatch
+   🚨 Schema vault has been modified!
+   ❌ Migration aborted for safety
 ```
 
-**4. Mutations with safety guards**
-```go
-// Insert with validation
-result, err := db.Insert("User").
-    Set("email", "ana@mail.com").
-    Set("name", "Ana Garcia").
-    Debug().
-    Execute(ctx)
+**5. Integrity Modes** (Unix-style protection rings)
+```bash
+# Default: readonly (schema locked)
+$ chameleon migrate --apply
+❌ readonly mode: schema modifications blocked
 
-// Update with mandatory WHERE clause
-db.Update("User").
-    Filter("id", "eq", userID).
-    Set("name", "Ana María").
-    Execute(ctx)
+# Upgrade to standard (controlled changes)
+$ chameleon config set mode=standard
+🔐 Enter mode password: ****
+✅ Mode upgraded to standard
 
-// Delete with safety guard (prevents accidental full table delete)
-db.Delete("Post").
-    Filter("published", "eq", false).
-    Execute(ctx)
+# Now migrations are allowed
+$ chameleon migrate --apply
+✅ Migration applied successfully
+✅ Schema v002 locked in vault
 ```
 
 **What you get:**
 
-✅ **Compile-time schema validation** — Catch errors before runtime  
-✅ **Field projection** — Query only what you need (performance++)  
-✅ **Graph navigation** — No manual JOINs required  
-✅ **Full SQL transparency** — See generated queries with `.Debug()`  
-✅ **Mutation safety** — Prevent UPDATE/DELETE without WHERE  
-✅ **Zero magic** — Predictable, explicit behavior  
-✅ **Native performance** — Rust core, minimal overhead  
+✅ **Immutable schema versions** — Tamper-proof with SHA256 hashing  
+✅ **Integrity verification** — Automatic checks before every operation  
+✅ **Explicit governance** — Ring-based modes (readonly/standard/privileged/emergency)  
+✅ **Complete audit trail** — Append-only log, never deleted  
+✅ **Zero-config vault** — Auto-initializes on first migrate  
+✅ **Password-protected upgrades** — Mode escalation requires auth  
+✅ **Migration recovery** — Retry failed migrations automatically  
 
 ---
 
@@ -129,7 +138,7 @@ db.Delete("Post").
 - Go 1.21+
 - PostgreSQL 14+
 
-### Installation
+### Installation (Linux and macOS)
 ```bash
 # Install ChameleonDB CLI
 curl -sSL https://chameleondb.dev/install | sh
@@ -140,475 +149,481 @@ cd chameleondb/chameleon
 make build
 ```
 
+### Windows
+Download the compressed `.gz` file from [https://www.chameleondb.dev/windows](https://www.chameleondb.dev/windows)  
+Extract the `.gz` file (WinRAR, WinZip, 7zip, or similar). You will obtain two files:
+
+* `chameleon.exe`
+* `chameleon.dll`
+
+> ⚠️ Both files must be kept together.
+
+Add to Path to use in any terminal.  
+(see [RELEASE](RELEASE.md) or [INSTALLATION GUIDE](https://www.chameleondb.dev/docs/pages/installation.html) for more details)
+
+### Verify installation
+
+Open a new terminal (CMD or PowerShell) and run:
+```bash
+chameleon --version
+# Output: chameleon v1.0-alpha
+```
+
+
 ### Your First Project
 ```bash
-# Create new project
+# Initialize project (creates vault)
 cd my-project
 chameleon init
 
-# Validate schema
-chameleon validate
+# Create schema.cham
+cat > schema.cham <<EOF
+entity User {
+    id: uuid primary,
+    email: string unique,
+    name: string,
+}
+EOF
 
-# Generate migration
-chameleon migrate --dry-run
-
-# Apply to database
+# Apply migration (auto-registers v001)
 chameleon migrate --apply
+
+# View history
+chameleon journal schema
 ```
 
-### Your First Query
-```go
-package main
+### Integrity Mode Management
 
-import (
-    "context"
-    "fmt"
-    "log"
-    
-    "github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
-)
+```bash
+# Check current mode
+$ chameleon status
 
-func main() {
-    // Connect to database
-    eng := engine.NewEngine()
-    eng.LoadSchemaFromFile("schema.cham")
-    
-    ctx := context.Background()
-    config := engine.ConnectorConfig{
-        Host:     "localhost",
-        Port:     5432,
-        Database: "my_blog",
-        User:     "postgres",
-        Password: "postgres",
-    }
-    
-    eng.Connect(ctx, config)
-    defer eng.Close()
-    
-    // Query with field projection and eager loading
-    result, err := eng.Query("User").
-        Select("id", "name", "email").  // Only fetch needed fields
-        Filter("email", "eq", "ana@mail.com").
-        Include("posts").                 // Eager load (no N+1)
-        Execute(ctx)
-    
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Access results
-    for _, user := range result.Rows {
-        fmt.Printf("User: %s (%s)\n", 
-            user["name"], user["email"])
-        
-        if posts, ok := result.Relations["posts"]; ok {
-            fmt.Printf("  Posts: %d\n", len(posts))
-        }
-    }
-}
+Schema:
+  Current version:  v001
+  Status:          ✓ Up to date
+
+Vault:
+  Versions:        1 registered
+  Integrity:       ✓ OK
+  Mode:            🔒 readonly (locked)
+
+# Set password for mode upgrades (recommended)
+$ chameleon config auth set-password
+Enter new password: ********
+✅ Mode password configured
+
+# Upgrade to allow schema changes
+$ chameleon config set mode=standard
+🔐 Enter mode password: ********
+✅ Mode upgraded to standard
+
+# Downgrade (no password required)
+$ chameleon config set mode=readonly
+✅ Mode downgraded to readonly
 ```
 
 ---
 
 ## Core Features
 
-### 🎯 Field Projection (v1.0)
+### 🔐 Schema Vault (v1.0)
 
-Query only the fields you need for optimal performance:
+**Versioned, immutable schema storage with cryptographic integrity:**
 
-```go
-// Fetch only specific fields
-users := db.Query("User").
-    Select("id", "name").  // No email, age, etc.
-    Execute(ctx)
+```bash
+# Every migration creates a new version
+$ chameleon migrate --apply
 
-// Combine with filters
-activeUsers := db.Query("User").
-    Select("id", "email").
-    Filter("active", "eq", true).
-    Execute(ctx)
+📦 Registering new schema version...
+   ✓ Registered as v002 (hash: 7d4e1c2a...)
+   ✓ Parent: v001
 
-// Default behavior (backward compatible)
-allUsers := db.Query("User").Execute(ctx)  // SELECT * FROM users
+✅ Migration applied successfully
+✅ Schema v002 locked in vault
+
+# View version history
+$ chameleon journal schema
+
+📖 Schema Version History
+
+v002 (current) ✓
+├─ Hash: 7d4e1c2a...
+├─ Date: 2026-02-20 15:45:00
+├─ Author: dperalta
+├─ Changes: Added age field to User
+└─ Parent: v001
+
+v001
+├─ Hash: 3f2a8b9c...
+├─ Date: 2026-02-20 10:30:00
+├─ Author: dperalta
+├─ Changes: Initial schema
+└─ Parent: none
 ```
 
-**Benefits:**
-- 📉 Reduced network traffic
-- ⚡ Faster queries
-- 💾 Lower memory usage
-- 🔒 Better security (don't expose unnecessary data)
+**Features:**
+- ✅ Immutable snapshots (once registered, never modified)
+- ✅ SHA256 hash verification (tamper detection)
+- ✅ Lineage tracking (parent versions)
+- ✅ Automatic registration on migrate
+- ✅ Complete audit trail (integrity.log)
+
+---
+
+### 🛡️ Integrity Modes (v1.0)
+
+**Unix-style protection rings for schema governance:**
+
+| Mode | Ring | Use Case | Schema Changes |
+|------|------|----------|----------------|
+| **readonly** | R3 | Production (default) | ❌ Blocked |
+| **standard** | R2 | Development teams | ✅ Controlled |
+| **privileged** | R1 | DBAs | ✅ Direct (logged) |
+| **emergency** | R0 | Incident recovery | ✅ No checks (audited) |
+
+**How it works:**
+
+```bash
+# Default mode: readonly (schema locked)
+$ chameleon init
+✅ Vault initialized in readonly mode
+💡 Tip: Set mode password with 'chameleon config auth set-password'
+
+# Try to migrate in readonly mode
+$ chameleon migrate --apply
+❌ readonly mode: schema modifications blocked
+
+# Upgrade mode (requires password)
+$ chameleon config set mode=standard
+🔐 Enter mode password: ****
+✅ Mode upgraded to standard
+
+# Now migrations work
+$ chameleon migrate --apply
+✅ Schema v002 registered and applied
+```
+
+**Password protection:**
+```bash
+# Set password for mode upgrades
+$ chameleon config auth set-password
+Enter new password: ********
+✅ Mode password configured
+
+# Upgrades require password
+$ chameleon config set mode=privileged
+🔐 Enter mode password: ****
+
+# Downgrades don't require password
+$ chameleon config set mode=readonly
+✅ Mode downgraded (no password needed)
+```
+
+---
+
+### 🎯 Query System (v1.0)
+
+**Graph-oriented, type-safe queries with field projection:**
+
+```go
+// Query only the fields you need
+users := db.Query("User").
+    Select("id", "name", "email").  // Partial selection
+    Filter("age", "gt", 25).
+    Include("posts").                // Eager load (no N+1)
+    Execute(ctx)
+
+// Debug mode (see generated SQL)
+users := db.Query("User").
+    Select("id", "name").
+    Filter("email", "like", "ana").
+    Debug().
+    Execute(ctx)
+
+// Output:
+// [SQL] Query User
+// SELECT id, name FROM users WHERE email LIKE '%ana%'
+// [TRACE] Query on User: 2.3ms, 3 rows
+```
+
+---
 
 ### 🛡️ Mutation Safety (v1.0)
 
-Built-in safety guards prevent common mistakes:
+**Built-in safety guards with clear error messages:**
 
 ```go
-// ✅ SAFE: Update with filter
+// Insert with validation
+result, err := db.Insert("User").
+    Set("email", "ana@mail.com").
+    Set("name", "Ana Garcia").
+    Execute(ctx)
+
+// If email already exists:
+// ❌ UniqueConstraintError: Field 'email' must be unique
+//    Value: ana@mail.com already exists
+//    Suggestion: Use a different value or update the existing record
+
+// Update requires WHERE clause
 db.Update("User").
     Filter("id", "eq", userID).
     Set("name", "New Name").
     Execute(ctx)
 
-// ❌ BLOCKED: Update without filter (would affect entire table)
-db.Update("User").
-    Set("name", "Same Name").
-    Execute(ctx)
-// Error: UPDATE requires a WHERE clause
-
-// ✅ SAFE: Explicit confirmation for dangerous operations
-db.Update("User").
-    Set("verified", true).
-    ForceUpdateAll().  // Explicit opt-in
-    Execute(ctx)
-```
-
-**Safety Features:**
-- 🚫 No UPDATE/DELETE without WHERE clause
-- 🔐 Primary key update prevention
-- ✅ Required field validation
-- 📝 Type checking (UUID, email, etc.)
-- ⚠️ Clear error messages with suggestions
-
-### 🔍 Debug Mode (v1.0)
-
-See exactly what SQL runs, with timing information:
-
-```go
-// Enable debug for a single query
-users := db.Query("User").
-    Select("id", "name").
-    Filter("age", "gt", 25).
-    Debug().  // Shows SQL + execution time
-    Execute(ctx)
-```
-
-Output:
-```
-[SQL] Query User
-SELECT id, name FROM users WHERE age > 25
-
-[TRACE] Query on User: 1.2ms, 42 rows
-```
-
-**Debug Levels:**
-- `DebugOff` - No output (production)
-- `DebugSQL` - Show generated SQL
-- `DebugTrace` - SQL + timing + row count
-
-**Use cases:**
-- 🐛 Debugging slow queries
-- 📊 Performance optimization
-- 🎓 Learning SQL generation
-- 🔧 Development workflow
-
-### 🔗 Graph Navigation
-
-Navigate relationships without manual JOINs:
-
-```go
-// Eager load nested relations
-posts := db.Query("Post").
-    Include("author").           // User entity
-    Include("comments").         // Comment entities
-    Include("comments.author").  // Nested: comment authors
-    Execute(ctx)
-
-// Filter through relations (automatic JOIN)
-posts := db.Query("Post").
-    Filter("author.verified", "eq", true).  // Joins users table
-    Filter("published", "eq", true).
-    Execute(ctx)
-```
-
-Generated SQL (with automatic JOIN):
-```sql
-SELECT DISTINCT posts.*
-FROM posts
-INNER JOIN users ON users.id = posts.author_id
-WHERE users.verified = true AND posts.published = true
+// Trying to update without filter:
+// ❌ SafetyError: UPDATE requires a WHERE clause
+//    Suggestion: Use Filter() or ForceUpdateAll()
 ```
 
 ---
 
-## Architecture
+### 🔍 IdentityMap (v1.0)
 
-ChameleonDB uses a **hybrid Rust + Go architecture** for type-safety and performance:
+**Automatic object deduplication in memory:**
 
-```
-┌───────────────────────────────────────────────────┐
-│  Go Application Layer                             │
-│  - Query Builder (fluent API)                     │
-│  - Mutation Factory (Insert/Update/Delete)        │
-│  - Connection Management (pgx)                    │
-└──────────────────┬────────────────────────────────┘
-                   │ Go Runtime
-                   ↕ FFI (C ABI, ~100ns overhead)
-┌──────────────────▼────────────────────────────────┐
-│  Rust Core (libchameleon.so)                      │
-│  - Schema Parser (LALRPOP)                        │
-│  - Type Checker & Validator                       │
-│  - SQL Generator (PostgreSQL)                     │
-│  - Migration Generator                            │
-└───────────────────────────────────────────────────┘
-```
-
-### Design Principles
-
-**Contract-Driven Architecture:**
-- Interfaces define boundaries between layers
-- Factory pattern for extensibility
-- Dependency injection for testing
-- No circular dependencies
-
-**Example: Mutation System**
 ```go
-// Contract (interface)
-type InsertMutation interface {
-    Set(field string, value interface{}) InsertMutation
-    Debug() InsertMutation
-    Execute(ctx context.Context) (*InsertResult, error)
-}
+// Without IdentityMap (wasteful)
+// If User has 100 posts, User object is duplicated 100 times in memory
 
-// Factory creates implementations
-factory := mutation.NewFactory(schema)
-insert := factory.NewInsert("User")
-
-// Usage (works with any implementation)
-result := insert.
-    Set("email", "ana@mail.com").
-    Set("name", "Ana").
-    Debug().
+// With IdentityMap (efficient)
+result := db.Query("User").
+    Include("posts").
     Execute(ctx)
+
+// User object appears only once
+// All 100 posts reference the same User instance
+// Memory savings: ~99% for large result sets
 ```
-
-**Why this architecture?**
-
-- **Rust core**: Type-safety, zero-cost abstractions, fast parsing
-- **Go runtime**: Simple deployment, great concurrency, familiar tooling
-- **FFI overhead**: ~100ns per call (negligible for DB operations)
-- **Future-proof**: Easy to add Node, Python, Java bindings
 
 ---
 
-## Advanced Features
+## CLI Commands
 
-### Raw SQL Escape Hatch
+### Migration Management
 
-For complex queries beyond the query builder:
+```bash
+# View status
+chameleon status
 
-```go
-// Access the underlying pgx connection pool
-pool := engine.Connector().Pool()
+# Check for changes
+chameleon migrate
 
-// Execute raw SQL for complex operations
-rows, err := pool.Query(ctx, `
-    SELECT u.name, COUNT(p.id) as post_count
-    FROM users u
-    LEFT JOIN posts p ON p.author_id = u.id
-    GROUP BY u.id, u.name
-    HAVING COUNT(p.id) > 5
-    ORDER BY post_count DESC
-`)
+# Preview SQL
+chameleon migrate --dry-run
+
+# Apply migration
+chameleon migrate --apply
+
+# Verify integrity
+chameleon verify
 ```
 
-**When to use:**
-- ✅ Complex aggregations (GROUP BY, HAVING)
-- ✅ Subqueries and CTEs
-- ✅ Database-specific features (full-text search, JSON operators)
-- ✅ Performance-critical queries with custom indexes
+### Schema Vault
 
-See [Raw SQL Documentation](docs/raw_sql.md) for details.
+```bash
+# View version history
+chameleon journal schema
 
-### Validation Pipeline
+# View specific version
+chameleon journal schema v002
 
-Three-stage validation for data integrity:
+# View integrity log
+cat .chameleon/vault/integrity.log
+```
 
-**Stage 1: Go-level validation**
-- Type checking (string, int, UUID)
-- Format validation (email, UUID format)
-- Null constraints
+### Mode Management
 
-**Stage 2: Schema validation (Rust)**
-- Field existence
-- Relation validation
-- Primary key constraints
+```bash
+# View current mode
+chameleon config get mode
 
-**Stage 3: Database constraints (PostgreSQL)**
-- Unique constraints
-- Foreign keys
-- Check constraints
+# Set mode password
+chameleon config auth set-password
 
-```go
-// Example: All three stages in action
-result, err := db.Insert("User").
-    Set("email", "not-an-email").  // ❌ Stage 1: Invalid email format
-    Set("age", "twenty").          // ❌ Stage 1: Type mismatch (string vs int)
-    Set("unknown_field", "val").   // ❌ Stage 2: Field doesn't exist in schema
-    Execute(ctx)
-    // ❌ Stage 3: Database unique constraint (if email exists)
+# Upgrade mode (requires password)
+chameleon config set mode=standard
+
+# Downgrade mode (no password)
+chameleon config set mode=readonly
 ```
 
 ---
 
 ## Features Status
 
-### ✅ Available Now (v1.0-beta)
+### ✅ Available Now (v1.0-alpha)
+
+**Schema Governance:**
+- [x] Schema Vault (versioned, hash-verified)
+- [x] Integrity Modes (readonly/standard/privileged/emergency)
+- [x] Password-protected mode upgrades
+- [x] Automatic integrity verification
+- [x] Append-only audit trail
+- [x] Migration recovery (retry failed migrations)
 
 **Query System:**
-- [x] Schema parser and validator
+- [x] Schema parser and type checker
 - [x] Query builder with filters
-- [x] **Field projection** (`.Select()`)
+- [x] Field projection (`.Select()`)
 - [x] Eager loading (`.Include()`)
 - [x] Nested includes
-- [x] Relation filtering (automatic JOINs)
-- [x] **Debug mode** (`.Debug()`)
+- [x] IdentityMap (object deduplication)
+- [x] Debug mode (`.Debug()`)
 
 **Mutation System:**
-- [x] **Insert builder** with validation
-- [x] **Update builder** with safety guards
-- [x] **Delete builder** with safety guards
-- [x] **Mutation factory** pattern
+- [x] Insert/Update/Delete builders
+- [x] Safety guards (WHERE clause required)
 - [x] Three-stage validation pipeline
+- [x] Comprehensive error mapping
 
 **Tooling:**
-- [x] CLI tools (init, validate, migrate, check)
+- [x] CLI tools (init, migrate, verify, status)
 - [x] Rich error messages with suggestions
 - [x] PostgreSQL migration generator
-- [x] VSCode extension (syntax highlighting, diagnostics)
-- [x] Connection string support (`DATABASE_URL`)
-- [x] 80+ integration tests
+- [x] Database introspection (Only Postgres for now)
+- [x] 200+ tests (unit + integration)
 
-### 🚧 Working on - This Quarter (v1.1)
+### 🚧 Coming Soon (v1.1 - March 2026)
 
-- [ ] **IdentityMap** (object deduplication)
-- [ ] Database introspection (`chameleon introspect`)
+- [ ] Schema Vault rollback
+- [ ] Complete Paraniod modes (proposal/approval workflow)
 - [ ] Transaction support
 - [ ] Batch operations
 
-### 🔮 Planned (v1.2+)
+### 🔮 Planned (v1.2+ - Q2 2026)
 
+- [ ] Additional backends (MySQL, DuckDB)
 - [ ] Code generation (type-safe DTOs)
-- [ ] Query explain and optimization hints
-- [ ] Redis backend (@cache annotation)
-- [ ] Migration from Prisma/TypeORM
 - [ ] Multi-language support (TypeScript, Python)
+- [ ] Query optimizer layer
+
+### 🌟 Future (v1.5+ - 2027)
+
+- [ ] ML-based query optimization
+- [ ] Visual schema editor
+- [ ] Distributed vault (multi-node)
 
 ---
 
-## Project Structure
+## Architecture
+
+### Schema Vault Structure
+
 ```
-chameleondb/
-├── chameleon-core/          # Rust core library
-│   ├── src/
-│   │   ├── ast/             # Schema AST structures
-│   │   ├── parser/          # LALRPOP grammar
-│   │   ├── typechecker/     # Validation logic
-│   │   ├── query/           # Query AST + filters
-│   │   ├── sql/             # SQL generation + SELECT projection
-│   │   ├── migration/       # DDL generation
-│   │   └── ffi/             # C ABI bridge
-│   └── Cargo.toml
-│
-├── chameleon/               # Go runtime
-│   ├── cmd/chameleon/       # CLI tool
-│   ├── pkg/
-│   │   └── engine/          # Query executor + mutation factory
-│   │       ├── mutation/    # Insert/Update/Delete builders
-│   │       ├── query.go     # QueryBuilder with Select
-│   │       ├── executor.go  # SQL execution
-│   │       └── validation.go # Validation pipeline
-│   └── go.mod
-│
-├── docs/                    # Documentation
-│   ├── architecture.md
-│   ├── what_is_chameleondb.md
-│   ├── query-reference.md
-│   └── raw_sql.md           # Raw SQL escape hatch guide
-│
-└── examples/                # Separate repo
-    ├── 01-hello-world/
-    ├── 02-blog/
-    └── tutorial/
+.chameleon/
+├── vault/
+│   ├── manifest.json           # Current version + history
+│   ├── integrity.log           # Append-only audit trail
+│   ├── versions/               # Immutable snapshots
+│   │   ├── v001.json
+│   │   ├── v002.json
+│   │   └── v003.json
+│   └── hashes/                 # SHA256 verification
+│       ├── v001.hash
+│       ├── v002.hash
+│       └── v003.hash
+├── state/                      # Migration tracking
+│   └── migrations.json
+└── journal/                    # Operation log
+    └── 2026-02-20.log
+```
+
+### Execution Flow
+
+```
+1. User: chameleon migrate --apply
+         ↓
+2. Vault: Check integrity (verify all hashes)
+         ↓
+3. Mode:  Check if changes allowed (readonly blocks)
+         ↓
+4. Detect: Compare schema hash with current version
+         ↓
+5. Register: Create v002 snapshot + hash
+         ↓
+6. Execute: Apply SQL migration
+         ↓
+7. Log: Record in integrity.log + journal
 ```
 
 ---
 
 ## Roadmap
 
-### Q1 2026 ✅ v1.0-beta (Current)
+### Q1 2026 ✅ v1.0-alpha (Current)
 
-✅ Schema parser & type checker  
-✅ PostgreSQL backend  
-✅ Query builder with SELECT projection  
-✅ Mutation factory (Insert/Update/Delete)  
-✅ Debug mode  
-✅ CLI tools  
-✅ VSCode extension  
+✅ Schema Vault (versioned, hash-verified)  
+✅ Integrity Modes (ring-based governance)  
+✅ IdentityMap (object deduplication)  
+✅ Complete audit trail  
+✅ Zero-config initialization  
+✅ Password-protected modes  
 
-**Goal:** Production-ready for simple to medium complexity apps
+**Goal:** Production-ready core with explicit governance
 
 ### Q2 2026 - v1.1
 
-- IdentityMap (object deduplication)
+- Schema Vault rollback
+- Eagle mode (proposal workflow)
 - Database introspection
 - Transaction support
-- Batch operations
 - Performance benchmarks
 
-**Goal:** Feature parity with major ORMs
+**Goal:** Feature parity with major ORMs + governance
 
 ### Q3-Q4 2026 - v1.2 Stable
 
+- Additional backends (MySQL, DuckDB)
 - Code generation
-- Additional backends (MySQL, Redis)
-- Migration tools
 - Multi-language bindings
+- Migration tools
 
 **Goal:** Enterprise-ready
 
 ### 2027+ - v2.0
 
-- DuckDB backend (OLAP)
 - ML-based query optimization
 - Visual schema editor
+- Distributed vault
 - Advanced features
 
 ---
 
-## Performance
+## Why ChameleonDB?
 
-Early benchmarks (v1.0-beta):
+### vs Traditional Databases
 
-**Schema Operations:**
-- Schema parsing: < 1ms for typical schemas
-- Type checking: < 5ms for complex queries
-- FFI overhead: ~100ns per call
+| Traditional DB | ChameleonDB |
+|----------------|-------------|
+| ❌ Schema drift over time | ✅ Immutable, versioned schemas |
+| ❌ Informal governance | ✅ Explicit Integrity Modes |
+| ❌ No tamper detection | ✅ SHA256 hash verification |
+| ❌ External audit logs | ✅ Built-in integrity log |
+| ❌ Manual rollback | ✅ Version-based recovery |
 
-**Query Performance:**
-- Simple queries: On par with hand-written SQL
-- Field projection: 20-40% faster than SELECT * (depends on table width)
-- Eager loading: Eliminates N+1 queries
+### vs Migration Tools (Flyway, Liquibase)
 
-**Validation:**
-- Go-level validation: < 1µs per field
-- Schema validation: < 5µs per query
-- Total overhead: Negligible vs network + DB time
+| Migration Tools | ChameleonDB |
+|-----------------|-------------|
+| ❌ External to database | ✅ Built into platform |
+| ❌ No schema identity | ✅ Cryptographic hashing |
+| ❌ Limited governance | ✅ Ring-based modes |
+| ❌ Rollback is manual | ✅ Version snapshots |
+| ✅ Battle-tested | 🚧 New approach |
 
-Full benchmarks vs Prisma/GORM coming in v1.1.
+### Key Differentiators
+
+1. **Schema as First-Class Artifact**: Versioned, immutable, hash-verified
+2. **Runtime Governance**: Integrity Modes enforced by the system
+3. **Zero-Config Vault**: Auto-initializes, works out of the box
+4. **Complete Audit Trail**: Append-only, never deleted
+5. **Explicit Authority**: Mode upgrades require password
 
 ---
 
 ## Contributing
 
-We welcome contributions! ChameleonDB is actively developed and there's plenty to do.
-
-### How to Contribute
-
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/amazing`)
-3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
-4. **Push** to the branch (`git push origin feature/amazing`)
-5. **Open** a Pull Request
+We welcome contributions! ChameleonDB is actively developed.
 
 ### Development Setup
 ```bash
@@ -628,59 +643,17 @@ make test-integration
 
 ### Areas We Need Help
 
-- 🦀 **Rust**: Query optimizer, additional SQL dialects
-- 🐹 **Go**: Runtime improvements, connection pooling
-- 📚 **Documentation**: Tutorials, API docs, migration guides
-- 🧪 **Testing**: Unit tests, integration tests, benchmarks
-- 🎨 **Tooling**: VSCode extension, browser devtools
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
-
----
-
-## Community
-
-- **GitHub Discussions**: [Ask questions, share ideas](https://github.com/chameleon-db/chameleondb/discussions)
-- **Discord**: [Join our server](https://chameleondb.dev/discord)
-- **Twitter**: [@chameleondb](https://twitter.com/chameleondb)
-
----
-
-## Why ChameleonDB?
-
-### vs Raw SQL
-
-| Raw SQL | ChameleonDB |
-|---------|-------------|
-| ❌ Manual JOINs | ✅ Graph navigation |
-| ❌ No type safety | ✅ Compile-time validation |
-| ❌ Easy to make mistakes | ✅ Safety guards |
-| ❌ No field projection helpers | ✅ `.Select()` API |
-| ✅ Full control | ✅ Full control + convenience |
-
-### vs Traditional ORMs (Prisma, GORM, TypeORM)
-
-| Traditional ORMs | ChameleonDB |
-|------------------|-------------|
-| ❌ Runtime errors | ✅ Compile-time errors |
-| ❌ Magic behavior | ✅ Explicit, predictable |
-| ❌ Hidden SQL | ✅ Full transparency (`.Debug()`) |
-| ❌ TypeScript-only (Prisma) | ✅ Multi-language (Go, TS planned) |
-| ✅ Rich ecosystem | 🚧 Growing ecosystem |
-
-### Key Differentiators
-
-1. **SQL Visibility**: See exactly what runs with `.Debug()`
-2. **Field Projection**: Built-in SELECT optimization
-3. **Safety by Default**: Prevent dangerous operations
-4. **Multi-Language**: Not tied to one ecosystem
-5. **No Magic**: Predictable behavior, no surprises
+- 🦀 **Rust**: Query optimizer, additional backends
+- 🐹 **Go**: Runtime improvements, Schema Vault features
+- 📚 **Documentation**: Tutorials, migration guides
+- 🧪 **Testing**: Integration tests, benchmarks
+- 🎨 **Tooling**: VSCode extension improvements
 
 ---
 
 ## License
 
-ChameleonDB is licensed under the **Apache License 2.0** - see the [LICENSE](LICENSE) file for details.
+ChameleonDB is licensed under the **Apache License 2.0**.
 
 ---
 
@@ -688,19 +661,17 @@ ChameleonDB is licensed under the **Apache License 2.0** - see the [LICENSE](LIC
 
 Inspired by:
 
-- **Prisma** — Schema-first approach and developer experience
-- **GraphQL** — Graph-based data navigation
-- **Rust** — Type safety and zero-cost abstractions
-- **EdgeDB** — Rethinking database access layers
-
-Special thanks to all [contributors](https://github.com/chameleon-db/chameleondb/graphs/contributors)!
+- **Unix/Linux** — Protection rings and explicit governance
+- **Git** — Immutable, hash-verified history
+- **Prisma** — Schema-first approach
+- **Datomic** — Immutability as a design principle
 
 ---
 
 <div align="center">
 
-**Built with ❤️ by developers, for developers**
+**Built with ❤️ for developers who care about schema integrity**
 
-[Website](https://chameleondb.dev) • [Documentation](https://chameleondb.dev/docs) • [Examples](https://github.com/chameleon-db/chameleon-examples)
-
+[Website](https://chameleondb.dev) • [Documentation](https://chameleondb.dev/docs) • [Examples](https://github.com/chameleon-db/chameleon-examples)  
+[Discord](https://chameleondb.dev/discord) • [X/Twitter](https://x.com/ChameleonDB)
 </div>
