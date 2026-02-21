@@ -42,9 +42,12 @@ Examples:
 			return err
 		}
 
-		outputFile := introspectOutput
-		if outputFile == "" {
-			outputFile = "schema.cham"
+		outputFile := "schemas/" + introspectOutput
+		if outputFile == "schemas/" {
+			outputFile = "schemas/schema.cham"
+		}
+		if !strings.HasSuffix(outputFile, ".cham") {
+			outputFile += ".cham"
 		}
 
 		workDir, err := os.Getwd()
@@ -321,6 +324,12 @@ func askOverwriteWithBackupAndGetOutput(filePath string) (string, error) {
 		if !strings.HasSuffix(newPath, ".cham") {
 			newPath += ".cham"
 			printInfo(fmt.Sprintf("Auto-added .cham extension: %s", newPath))
+		}
+
+		// Put new path inside schemas/ directory if not already there.
+		if !strings.HasPrefix(newPath, "schemas/") {
+			newPath = "schemas/" + newPath
+			printInfo(fmt.Sprintf("Auto-prefixed with schemas/: %s", newPath))
 		}
 
 		// Re-validate the new destination.

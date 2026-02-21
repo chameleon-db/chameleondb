@@ -3,6 +3,8 @@ package introspect
 import (
 	"fmt"
 	"strings"
+
+	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine/mutation"
 )
 
 // GenerateChameleonSchema converts introspected tables to .cham format
@@ -101,5 +103,11 @@ func toEntityName(tableName string) string {
 			parts[i] = strings.ToUpper(part[:1]) + part[1:]
 		}
 	}
+
+	if len(parts) > 0 {
+		lastIdx := len(parts) - 1
+		parts[lastIdx] = mutation.SingularizeName(parts[lastIdx])
+	}
+
 	return strings.Join(parts, "")
 }
