@@ -2,7 +2,7 @@ use std::ffi::{CStr, CString};
 use std::ptr;
 
 // Import desde el crate
-use chameleon_core::{
+use chameleon::{
     chameleon_parse_schema,
     chameleon_validate_schema,
     chameleon_free_string,

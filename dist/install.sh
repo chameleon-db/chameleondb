@@ -11,8 +11,8 @@ NC='\033[0m'
 # Configuración
 REPO="chameleon-db/chameleondb"
 BIN_NAME="chameleon"
-LIB_NAME_LINUX="libchameleon_core.so"
-LIB_NAME_MACOS="libchameleon_core.dylib"
+LIB_NAME_LINUX="libchameleon.so"
+LIB_NAME_MACOS="libchameleon.dylib"
 INSTALL_BIN_DIR="${CHAMELEON_INSTALL_DIR:-/usr/local/bin}"
 INSTALL_LIB_DIR="${CHAMELEON_LIB_DIR:-/usr/local/lib}"
 

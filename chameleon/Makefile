@@ -16,7 +16,7 @@ export CHAMELEON_TEST_DB_PASS=$(TEST_DB_PASS)
 # Paths
 RUST_LIB_DIR := $(shell pwd)/../chameleon-core/target/release
 RUST_INCLUDE_DIR := $(shell pwd)/../chameleon-core/include
-CGO_TEST_LDFLAGS := -L$(RUST_LIB_DIR) -lchameleon_core
+CGO_TEST_LDFLAGS := -L$(RUST_LIB_DIR) -lchameleon
 CGO_TEST_CFLAGS := -I$(RUST_INCLUDE_DIR)
 UNIT_TEST_PACKAGES := $(shell go list ./... | grep -v '/tests/integration')
 
@@ -26,7 +26,7 @@ build-rust:
 
 # Build Go binary with explicit library path
 build: build-rust
-	CGO_LDFLAGS="-L$(RUST_LIB_DIR) -lchameleon_core -Wl,-rpath,$(RUST_LIB_DIR)" \
+	CGO_LDFLAGS="-L$(RUST_LIB_DIR) -lchameleon -Wl,-rpath,$(RUST_LIB_DIR)" \
 	CGO_CFLAGS="-I$(RUST_INCLUDE_DIR)" \
 	go build -o bin/chameleon ./cmd/chameleon
 

@@ -1,9 +1,10 @@
 [package]
-name = "chameleon-core"
-version = "0.2.5-alfa"
+name = "chameleon"
+version = "0.2.6-alfa"
 edition = "2021"
 
 [lib]
+name = "chameleon"
 crate-type = ["rlib", "staticlib", "cdylib"]
 
 [dependencies]
