@@ -13,8 +13,12 @@ REPO="chameleon-db/chameleondb"
 BIN_NAME="chameleon"
 LIB_NAME_LINUX="libchameleon.so"
 LIB_NAME_MACOS="libchameleon.dylib"
+HEADER_NAME="chameleon.h"
+PKGCONFIG_NAME="chameleon.pc"
 INSTALL_BIN_DIR="${CHAMELEON_INSTALL_DIR:-/usr/local/bin}"
 INSTALL_LIB_DIR="${CHAMELEON_LIB_DIR:-/usr/local/lib}"
+INSTALL_INCLUDE_DIR="${CHAMELEON_INCLUDE_DIR:-/usr/local/include}"
+INSTALL_PKGCONFIG_DIR="${CHAMELEON_PKGCONFIG_DIR:-/usr/local/lib/pkgconfig}"
 
 # Detectar OS
 OS="$(uname | tr '[:upper:]' '[:lower:]')"
@@ -34,10 +38,12 @@ case "$OS" in
     linux) 
         OS="linux"
         LIB_NAME="$LIB_NAME_LINUX"
+        LIB_GLOB="libchameleon.so*"
         ;;
     darwin) 
         OS="darwin"
         LIB_NAME="$LIB_NAME_MACOS"
+        LIB_GLOB="libchameleon*.dylib*"
         ;;
     *)
         printf "${RED}✗${NC} Unsupported OS: $OS\n"
@@ -130,6 +136,11 @@ if [ ! -f "$TMP_DIR/$LIB_NAME" ]; then
     exit 1
 fi
 
+if [ ! -f "$TMP_DIR/$HEADER_NAME" ]; then
+    printf "${YELLOW}⚠${NC} Header not found in archive (${HEADER_NAME})\n"
+    printf "   SDK consumers (C/C++/bindings) may fail without it\n"
+fi
+
 printf "${GREEN}✓${NC} Files verified\n"
 
 # === INSTALL BINARY ===
@@ -148,15 +159,88 @@ printf "${GREEN}✓${NC} Binary installed\n"
 # === INSTALL LIBRARY ===
 printf "${BLUE}ℹ${NC} Installing library to $INSTALL_LIB_DIR\n"
 
-if [ -w "$INSTALL_LIB_DIR" ]; then
-    cp "$TMP_DIR/$LIB_NAME" "$INSTALL_LIB_DIR/$LIB_NAME"
-    chmod 644 "$INSTALL_LIB_DIR/$LIB_NAME"
-else
-    sudo cp "$TMP_DIR/$LIB_NAME" "$INSTALL_LIB_DIR/$LIB_NAME"
-    sudo chmod 644 "$INSTALL_LIB_DIR/$LIB_NAME"
+INSTALLED_LIBS=0
+
+for LIB_SRC in "$TMP_DIR"/$LIB_GLOB; do
+    [ -e "$LIB_SRC" ] || continue
+    LIB_BASENAME="$(basename "$LIB_SRC")"
+    LIB_DEST="$INSTALL_LIB_DIR/$LIB_BASENAME"
+
+    if [ -w "$INSTALL_LIB_DIR" ]; then
+        cp -P "$LIB_SRC" "$LIB_DEST"
+        if [ ! -L "$LIB_DEST" ]; then
+            chmod 644 "$LIB_DEST"
+        fi
+    else
+        sudo cp -P "$LIB_SRC" "$LIB_DEST"
+        if [ ! -L "$LIB_DEST" ]; then
+            sudo chmod 644 "$LIB_DEST"
+        fi
+    fi
+
+    INSTALLED_LIBS=$((INSTALLED_LIBS + 1))
+done
+
+if [ "$INSTALLED_LIBS" -eq 0 ]; then
+    printf "${RED}✗${NC} No library files matched pattern: $LIB_GLOB\n"
+    exit 1
 fi
 
 printf "${GREEN}✓${NC} Library installed\n"
+
+# === INSTALL HEADER (SDK) ===
+if [ -f "$TMP_DIR/$HEADER_NAME" ]; then
+    printf "${BLUE}ℹ${NC} Installing header to $INSTALL_INCLUDE_DIR\n"
+
+    if [ -w "$INSTALL_INCLUDE_DIR" ]; then
+        cp "$TMP_DIR/$HEADER_NAME" "$INSTALL_INCLUDE_DIR/$HEADER_NAME"
+        chmod 644 "$INSTALL_INCLUDE_DIR/$HEADER_NAME"
+    else
+        sudo cp "$TMP_DIR/$HEADER_NAME" "$INSTALL_INCLUDE_DIR/$HEADER_NAME"
+        sudo chmod 644 "$INSTALL_INCLUDE_DIR/$HEADER_NAME"
+    fi
+
+    printf "${GREEN}✓${NC} Header installed\n"
+fi
+
+# === INSTALL PKG-CONFIG FILE (SDK) ===
+printf "${BLUE}ℹ${NC} Installing pkg-config file to $INSTALL_PKGCONFIG_DIR\n"
+
+TMP_PC_FILE="$TMP_DIR/$PKGCONFIG_NAME"
+if [ -f "$TMP_DIR/$PKGCONFIG_NAME" ]; then
+    cp "$TMP_DIR/$PKGCONFIG_NAME" "$TMP_PC_FILE"
+else
+    cat > "$TMP_PC_FILE" <<EOF
+prefix=/usr/local
+exec_prefix=\${prefix}
+libdir=$INSTALL_LIB_DIR
+includedir=$INSTALL_INCLUDE_DIR
+
+Name: chameleon
+Description: ChameleonDB core native library
+Version: 0.0.0
+Libs: -L$INSTALL_LIB_DIR -lchameleon
+Cflags: -I$INSTALL_INCLUDE_DIR
+EOF
+fi
+
+if [ ! -d "$INSTALL_PKGCONFIG_DIR" ]; then
+    if [ -w "$(dirname "$INSTALL_PKGCONFIG_DIR")" ]; then
+        mkdir -p "$INSTALL_PKGCONFIG_DIR"
+    else
+        sudo mkdir -p "$INSTALL_PKGCONFIG_DIR"
+    fi
+fi
+
+if [ -w "$INSTALL_PKGCONFIG_DIR" ]; then
+    cp "$TMP_PC_FILE" "$INSTALL_PKGCONFIG_DIR/$PKGCONFIG_NAME"
+    chmod 644 "$INSTALL_PKGCONFIG_DIR/$PKGCONFIG_NAME"
+else
+    sudo cp "$TMP_PC_FILE" "$INSTALL_PKGCONFIG_DIR/$PKGCONFIG_NAME"
+    sudo chmod 644 "$INSTALL_PKGCONFIG_DIR/$PKGCONFIG_NAME"
+fi
+
+printf "${GREEN}✓${NC} pkg-config file installed\n"
 
 # === UPDATE LIBRARY CACHE ===
 if command -v ldconfig >/dev/null 2>&1; then

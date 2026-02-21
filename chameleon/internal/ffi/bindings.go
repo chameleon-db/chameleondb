@@ -1,6 +1,8 @@
 package ffi
 
 /*
+#cgo linux LDFLAGS: -L/usr/local/lib -Wl,-rpath,/usr/local/lib -lchameleon
+#cgo darwin LDFLAGS: -L/usr/local/lib -L/opt/homebrew/lib -Wl,-rpath,/usr/local/lib -Wl,-rpath,/opt/homebrew/lib -lchameleon
 #include <stdlib.h>
 
 // Forward declarations

@@ -2,7 +2,9 @@
 set -e
 
 BIN="/usr/local/bin/chameleon"
-LIB="/usr/local/lib/chameleon"
+LIB_DIR="/usr/local/lib"
+HEADER="/usr/local/include/chameleon.h"
+PKGCONFIG="/usr/local/lib/pkgconfig/chameleon.pc"
 CONF="$HOME/.chameleon"
 
 echo ""
@@ -11,7 +13,11 @@ echo "-----------------------"
 echo ""
 echo "This will remove:"
 [ -f "$BIN" ] && echo " - Binary: $BIN"
-[ -d "$LIB" ] && echo " - Libraries: $LIB"
+for lib in "$LIB_DIR"/libchameleon.so* "$LIB_DIR"/libchameleon*.dylib* "$LIB_DIR"/chameleon.dll; do
+  [ -e "$lib" ] && echo " - Library: $lib"
+done
+[ -f "$HEADER" ] && echo " - Header: $HEADER"
+[ -f "$PKGCONFIG" ] && echo " - pkg-config: $PKGCONFIG"
 
 echo ""
 echo "The following will NOT be removed:"
@@ -39,14 +45,23 @@ if [ -f "$BIN" ]; then
   sudo rm "$BIN"
 fi
 
-# Remove libraries only if directory exists and is empty-safe
-if [ -d "$LIB" ]; then
-  if [ "$(ls -A "$LIB")" ]; then
-    echo "Warning: $LIB is not empty. Skipping removal."
-  else
-    echo "Removing libraries..."
-    sudo rmdir "$LIB"
-  fi
+# Remove native libraries (versioned + symlinks)
+for lib in "$LIB_DIR"/libchameleon.so* "$LIB_DIR"/libchameleon*.dylib* "$LIB_DIR"/chameleon.dll; do
+  [ -e "$lib" ] || continue
+  echo "Removing library ($lib)..."
+  sudo rm "$lib"
+done
+
+# Remove header
+if [ -f "$HEADER" ]; then
+  echo "Removing header..."
+  sudo rm "$HEADER"
+fi
+
+# Remove pkg-config metadata
+if [ -f "$PKGCONFIG" ]; then
+  echo "Removing pkg-config metadata..."
+  sudo rm "$PKGCONFIG"
 fi
 
 echo ""

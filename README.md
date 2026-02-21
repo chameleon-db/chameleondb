@@ -169,6 +169,53 @@ chameleon --version
 # Output: chameleon v1.0-alpha
 ```
 
+### Using Chameleon as a Go SDK (from another repository)
+
+If you import `github.com/chameleon-db/chameleondb/chameleon/pkg/engine` in another Go project,
+the package now links `libchameleon` automatically via cgo (`-lchameleon`).
+
+Requirements:
+
+- `libchameleon.so` installed in `/usr/local/lib` (Linux)
+- `chameleon.h` available in system include paths (recommended: `/usr/local/include`)
+
+Build/install from source:
+
+```bash
+# from this monorepo root
+cd chameleon-core
+cargo build --release
+
+sudo cp target/release/libchameleon.so /usr/local/lib/
+sudo cp include/chameleon.h /usr/local/include/
+sudo ldconfig
+```
+
+Then in your external Go repo:
+
+```bash
+go get github.com/chameleon-db/chameleondb/chameleon@latest
+go build ./...
+```
+
+If you install the library in a non-standard location, set custom flags:
+
+```bash
+CGO_LDFLAGS="-L/path/to/lib -Wl,-rpath,/path/to/lib -lchameleon" \
+CGO_CFLAGS="-I/path/to/include" \
+go build ./...
+```
+
+Recommended packaging strategy (industry standard):
+
+- Ship native library + public header together (`libchameleon.*` + `chameleon.h`)
+- Keep C ABI stable across patch/minor releases
+- Publish `pkg-config` metadata (`chameleon.pc`) for language/toolchain interoperability
+- Use ABI-versioned shared libraries (e.g. `libchameleon.so.1 -> libchameleon.so`) for safe upgrades
+- Use semantic versioning and avoid breaking C symbols without a major version bump
+
+This makes Go, C/C++, Python, Node, and other future bindings easier to maintain.
+
 
 ### Your First Project
 ```bash

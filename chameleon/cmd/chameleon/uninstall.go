@@ -29,11 +29,27 @@ func init() {
 func runUninstall(cmd *cobra.Command, args []string) {
 	binPath := "/usr/local/bin/chameleon"
 	libDir := "/usr/local/lib"
+	includeDir := "/usr/local/include"
+	pkgConfigDir := "/usr/local/lib/pkgconfig"
 
 	binaryExists := fileExists(binPath)
-	libs, _ := filepath.Glob(filepath.Join(libDir, "libchameleon_core*"))
+	libsCurrent, _ := filepath.Glob(filepath.Join(libDir, "libchameleon*"))
+	libsLegacy, _ := filepath.Glob(filepath.Join(libDir, "libchameleon_core*"))
+	libs := make([]string, 0, len(libsCurrent)+len(libsLegacy))
+	seen := make(map[string]struct{})
+	for _, lib := range append(libsCurrent, libsLegacy...) {
+		if _, ok := seen[lib]; ok {
+			continue
+		}
+		seen[lib] = struct{}{}
+		libs = append(libs, lib)
+	}
+	headerPath := filepath.Join(includeDir, "chameleon.h")
+	pkgConfigPath := filepath.Join(pkgConfigDir, "chameleon.pc")
+	headerExists := fileExists(headerPath)
+	pkgConfigExists := fileExists(pkgConfigPath)
 
-	if !binaryExists && len(libs) == 0 {
+	if !binaryExists && len(libs) == 0 && !headerExists && !pkgConfigExists {
 		fmt.Println("ChameleonDB is not installed.")
 		return
 	}
@@ -48,6 +64,12 @@ func runUninstall(cmd *cobra.Command, args []string) {
 	}
 	for _, lib := range libs {
 		fmt.Println(" - Library:  ", lib)
+	}
+	if headerExists {
+		fmt.Println(" - Header:   ", headerPath)
+	}
+	if pkgConfigExists {
+		fmt.Println(" - PkgConf:  ", pkgConfigPath)
 	}
 
 	fmt.Println()
@@ -78,6 +100,22 @@ func runUninstall(cmd *cobra.Command, args []string) {
 		if err := os.Remove(lib); err != nil {
 			fmt.Println("❌ Failed to remove library:", lib)
 			fmt.Println("Try manually: sudo rm", lib)
+			return
+		}
+	}
+
+	if headerExists {
+		if err := os.Remove(headerPath); err != nil {
+			fmt.Println("❌ Failed to remove header:", headerPath)
+			fmt.Println("Try manually: sudo rm", headerPath)
+			return
+		}
+	}
+
+	if pkgConfigExists {
+		if err := os.Remove(pkgConfigPath); err != nil {
+			fmt.Println("❌ Failed to remove pkg-config file:", pkgConfigPath)
+			fmt.Println("Try manually: sudo rm", pkgConfigPath)
 			return
 		}
 	}

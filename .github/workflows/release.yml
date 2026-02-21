@@ -11,6 +11,7 @@ permissions:
 env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
+  LIB_ABI_VERSION: "1"
 
 jobs:
   # ============ LINUX ============
@@ -29,7 +30,7 @@ jobs:
         run: |
           cargo build --release
           mkdir -p ../chameleon/lib
-          cp target/release/libchameleon_core.so ../chameleon/lib/
+          cp target/release/libchameleon.so ../chameleon/lib/
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -40,7 +41,7 @@ jobs:
         working-directory: chameleon
         env:
           CGO_ENABLED: "1"
-          CGO_LDFLAGS: "-L${{ github.workspace }}/chameleon/lib -lchameleon_core"
+          CGO_LDFLAGS: "-L${{ github.workspace }}/chameleon/lib -lchameleon"
           CGO_CFLAGS: "-I${{ github.workspace }}/chameleon-core/include"
           LD_LIBRARY_PATH: "${{ github.workspace }}/chameleon/lib"
         run: |
@@ -48,12 +49,43 @@ jobs:
 
       - name: Package
         run: |
+          VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist
           cp chameleon/chameleon dist/
-          cp chameleon/lib/libchameleon_core.so dist/
+          cp chameleon/lib/libchameleon.so "dist/libchameleon.so.${VERSION}"
+          ln -sf "libchameleon.so.${VERSION}" "dist/libchameleon.so.${{ env.LIB_ABI_VERSION }}"
+          ln -sf "libchameleon.so.${{ env.LIB_ABI_VERSION }}" dist/libchameleon.so
+          cp chameleon-core/include/chameleon.h dist/
+          {
+            echo "prefix=/usr/local"
+            echo 'exec_prefix=${prefix}'
+            echo "libdir=/usr/local/lib"
+            echo "includedir=/usr/local/include"
+            echo
+            echo "Name: chameleon"
+            echo "Description: ChameleonDB core native library"
+            echo "Version: ${VERSION}"
+            echo "Libs: -L/usr/local/lib -lchameleon"
+            echo "Cflags: -I/usr/local/include"
+          } > dist/chameleon.pc
           cd dist
-          tar -czf chameleon-linux-amd64.tar.gz chameleon libchameleon_core.so
+          tar -czf chameleon-linux-amd64.tar.gz chameleon libchameleon.so* chameleon.h chameleon.pc
           sha256sum chameleon-linux-amd64.tar.gz > chameleon-linux-amd64.sha256
+
+      - name: Validate package contents
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ABI="${{ env.LIB_ABI_VERSION }}"
+          ARCHIVE="dist/chameleon-linux-amd64.tar.gz"
+          CONTENTS="$(tar -tzf "$ARCHIVE")"
+          echo "$CONTENTS"
+
+          echo "$CONTENTS" | grep -qx "chameleon"
+          echo "$CONTENTS" | grep -qx "chameleon.h"
+          echo "$CONTENTS" | grep -qx "chameleon.pc"
+          echo "$CONTENTS" | grep -qx "libchameleon.so"
+          echo "$CONTENTS" | grep -qx "libchameleon.so.${ABI}"
+          echo "$CONTENTS" | grep -qx "libchameleon.so.${VERSION}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -82,7 +114,7 @@ jobs:
         run: |
           cargo build --release
           mkdir -p ../chameleon/lib
-          cp target/release/libchameleon_core.dylib ../chameleon/lib/
+          cp target/release/libchameleon.dylib ../chameleon/lib/
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -93,7 +125,7 @@ jobs:
         working-directory: chameleon
         env:
           CGO_ENABLED: "1"
-          CGO_LDFLAGS: "-L${{ github.workspace }}/chameleon/lib -lchameleon_core"
+          CGO_LDFLAGS: "-L${{ github.workspace }}/chameleon/lib -lchameleon"
           CGO_CFLAGS: "-I${{ github.workspace }}/chameleon-core/include"
           LD_LIBRARY_PATH: "${{ github.workspace }}/chameleon/lib"
         run: |
@@ -101,12 +133,43 @@ jobs:
 
       - name: Package
         run: |
+          VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist
           cp chameleon/chameleon dist/
-          cp chameleon/lib/libchameleon_core.dylib dist/
+          cp chameleon/lib/libchameleon.dylib "dist/libchameleon.${VERSION}.dylib"
+          ln -sf "libchameleon.${VERSION}.dylib" "dist/libchameleon.${{ env.LIB_ABI_VERSION }}.dylib"
+          ln -sf "libchameleon.${{ env.LIB_ABI_VERSION }}.dylib" dist/libchameleon.dylib
+          cp chameleon-core/include/chameleon.h dist/
+          {
+            echo "prefix=/usr/local"
+            echo 'exec_prefix=${prefix}'
+            echo "libdir=/usr/local/lib"
+            echo "includedir=/usr/local/include"
+            echo
+            echo "Name: chameleon"
+            echo "Description: ChameleonDB core native library"
+            echo "Version: ${VERSION}"
+            echo "Libs: -L/usr/local/lib -lchameleon"
+            echo "Cflags: -I/usr/local/include"
+          } > dist/chameleon.pc
           cd dist
-          tar -czf chameleon-macos-universal.tar.gz chameleon libchameleon_core.dylib
+          tar -czf chameleon-macos-universal.tar.gz chameleon libchameleon*.dylib chameleon.h chameleon.pc
           shasum -a 256 chameleon-macos-universal.tar.gz > chameleon-macos-universal.sha256
+
+      - name: Validate package contents
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ABI="${{ env.LIB_ABI_VERSION }}"
+          ARCHIVE="dist/chameleon-macos-universal.tar.gz"
+          CONTENTS="$(tar -tzf "$ARCHIVE")"
+          echo "$CONTENTS"
+
+          echo "$CONTENTS" | grep -qx "chameleon"
+          echo "$CONTENTS" | grep -qx "chameleon.h"
+          echo "$CONTENTS" | grep -qx "chameleon.pc"
+          echo "$CONTENTS" | grep -qx "libchameleon.dylib"
+          echo "$CONTENTS" | grep -qx "libchameleon.${ABI}.dylib"
+          echo "$CONTENTS" | grep -qx "libchameleon.${VERSION}.dylib"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -135,7 +198,7 @@ jobs:
         run: |
           cargo build --release
           mkdir -p ../chameleon/lib
-          copy target\release\chameleon_core.dll ..\chameleon\lib\
+          copy target\release\chameleon.dll ..\chameleon\lib\
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -146,7 +209,7 @@ jobs:
         working-directory: chameleon
         env:
           CGO_ENABLED: "1"
-          CGO_LDFLAGS: "-L${{ github.workspace }}\\chameleon\\lib -lchameleon_core"
+          CGO_LDFLAGS: "-L${{ github.workspace }}\\chameleon\\lib -lchameleon"
           CGO_CFLAGS: "-I${{ github.workspace }}\\chameleon-core\\include"
         run: |
           go build -o chameleon.exe ./cmd/chameleon
@@ -154,11 +217,37 @@ jobs:
       - name: Package
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
+          $VERSION = "${env:GITHUB_REF_NAME}".TrimStart('v')
           copy chameleon\chameleon.exe dist\
-          copy chameleon\lib\chameleon_core.dll dist\
+          copy chameleon\lib\chameleon.dll dist\
+          copy chameleon-core\include\chameleon.h dist\
+          @"
+          prefix=/usr/local
+          exec_prefix=\${prefix}
+          libdir=/usr/local/lib
+          includedir=/usr/local/include
+
+          Name: chameleon
+          Description: ChameleonDB core native library
+          Version: $VERSION
+          Libs: -L/usr/local/lib -lchameleon
+          Cflags: -I/usr/local/include
+          "@ | Set-Content -Path dist\chameleon.pc -NoNewline
           cd dist
-          tar -czf chameleon-windows-amd64.tar.gz chameleon.exe chameleon_core.dll
+          tar -czf chameleon-windows-amd64.tar.gz chameleon.exe chameleon.dll chameleon.h chameleon.pc
           certutil -hashfile chameleon-windows-amd64.tar.gz SHA256 > chameleon-windows-amd64.sha256
+
+      - name: Validate package contents
+        shell: pwsh
+        run: |
+          $archive = "dist/chameleon-windows-amd64.tar.gz"
+          $contents = tar -tzf $archive
+          $contents
+
+          if (-not ($contents -contains "chameleon.exe")) { throw "missing chameleon.exe" }
+          if (-not ($contents -contains "chameleon.dll")) { throw "missing chameleon.dll" }
+          if (-not ($contents -contains "chameleon.h")) { throw "missing chameleon.h" }
+          if (-not ($contents -contains "chameleon.pc")) { throw "missing chameleon.pc" }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
