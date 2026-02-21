@@ -207,9 +207,7 @@ fi
 printf "${BLUE}ℹ${NC} Installing pkg-config file to $INSTALL_PKGCONFIG_DIR\n"
 
 TMP_PC_FILE="$TMP_DIR/$PKGCONFIG_NAME"
-if [ -f "$TMP_DIR/$PKGCONFIG_NAME" ]; then
-    cp "$TMP_DIR/$PKGCONFIG_NAME" "$TMP_PC_FILE"
-else
+if [ ! -f "$TMP_PC_FILE" ]; then
     cat > "$TMP_PC_FILE" <<EOF
 prefix=/usr/local
 exec_prefix=\${prefix}
