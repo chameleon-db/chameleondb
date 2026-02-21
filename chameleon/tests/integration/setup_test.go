@@ -188,16 +188,25 @@ func skipIfNoDocker(t *testing.T) {
 		t.Skip("Skipping integration test (SKIP_INTEGRATION set)")
 	}
 
-	// Try to connect to test DB
-	ctx := context.Background()
+	// Try to connect to test DB with retries to avoid startup race conditions.
 	config := testConfig()
 	connStr := config.ConnectionString()
+	var lastErr error
 
-	conn, err := pgx.Connect(ctx, connStr)
-	if err != nil {
-		t.Skipf("Docker not available or test DB not running: %v", err)
+	for i := 0; i < 20; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		conn, err := pgx.Connect(ctx, connStr)
+		cancel()
+		if err == nil {
+			conn.Close(context.Background())
+			return
+		}
+
+		lastErr = err
+		time.Sleep(300 * time.Millisecond)
 	}
-	conn.Close(ctx)
+
+	t.Skipf("Docker not available or test DB not running: %v", lastErr)
 }
 
 func cleanupDatabase(t *testing.T, ctx context.Context, config engine.ConnectorConfig) {

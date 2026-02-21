@@ -13,6 +13,7 @@ const (
 	PostgreSQL DatabaseType = "postgresql"
 	MySQL      DatabaseType = "mysql"
 	SQLite     DatabaseType = "sqlite"
+	Unknown    DatabaseType = "unknown"
 )
 
 // ColumnInfo represents a column
@@ -59,32 +60,52 @@ type Introspector interface {
 
 // NewIntrospector creates the right introspector for a connection string
 func NewIntrospector(ctx context.Context, connStr string) (Introspector, error) {
+	normalizedConn := strings.TrimSpace(connStr)
+	if normalizedConn == "" {
+		return nil, fmt.Errorf("connection string is required")
+	}
+
 	// Try to detect DB type from connection string
-	dbType := detectFromConnString(connStr)
+	dbType := detectFromConnString(normalizedConn)
 
 	switch dbType {
 	case PostgreSQL:
-		return newPostgresIntrospector(ctx, connStr)
+		return newPostgresIntrospector(ctx, normalizedConn)
 	case MySQL:
 		return nil, fmt.Errorf("MySQL support coming in v0.2")
 	case SQLite:
 		return nil, fmt.Errorf("SQLite support coming in v0.2")
 	default:
-		return nil, fmt.Errorf("unsupported database type: %s", dbType)
+		return nil, fmt.Errorf("unsupported database connection scheme")
 	}
 }
 
 // detectFromConnString identifies DB type from connection string
 func detectFromConnString(connStr string) DatabaseType {
-	if strings.HasPrefix(connStr, "postgresql://") || strings.HasPrefix(connStr, "postgres://") {
+	normalized := strings.ToLower(strings.TrimSpace(connStr))
+
+	if strings.HasPrefix(normalized, "postgresql://") || strings.HasPrefix(normalized, "postgres://") {
 		return PostgreSQL
 	}
-	if strings.HasPrefix(connStr, "mysql://") {
+	if isLikelyPostgresDSN(normalized) {
+		return PostgreSQL
+	}
+	if strings.HasPrefix(normalized, "mysql://") {
 		return MySQL
 	}
-	if strings.HasPrefix(connStr, "sqlite://") || strings.HasPrefix(connStr, "file:") {
+	if strings.HasPrefix(normalized, "sqlite://") || strings.HasPrefix(normalized, "file:") {
 		return SQLite
 	}
-	// Default to PostgreSQL (v0.1 only supports PostgreSQL)
-	return PostgreSQL
+
+	return Unknown
+}
+
+func isLikelyPostgresDSN(connStr string) bool {
+	if !strings.Contains(connStr, "=") {
+		return false
+	}
+
+	return strings.Contains(connStr, "host=") ||
+		strings.Contains(connStr, "dbname=") ||
+		strings.Contains(connStr, "user=")
 }

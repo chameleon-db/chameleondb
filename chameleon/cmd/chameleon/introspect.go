@@ -32,7 +32,6 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		connStr := args[0]
 
-		// STEP 1: Check if schema.cam exists and validate it
 		outputFile := introspectOutput
 		if outputFile == "" {
 			outputFile = "schema.cham"
@@ -48,14 +47,14 @@ Examples:
 
 		ctx := context.Background()
 
-		// STEP 2: Create introspector (auto-detects DB type)
+		// Create introspector using the connection scheme.
 		inspector, err := introspect.NewIntrospector(ctx, connStr)
 		if err != nil {
 			return fmt.Errorf("failed to create introspector: %w", err)
 		}
 		defer inspector.Close()
 
-		// STEP 3: Detect DB type
+		// Verify database connectivity and engine detection.
 		detected, err := inspector.Detect(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to detect database: %w", err)
@@ -66,7 +65,7 @@ Examples:
 
 		printSuccess("Database detected")
 
-		// STEP 4: Introspect all tables
+		// Introspect all user tables.
 		printInfo("Scanning tables...")
 		tables, err := inspector.GetAllTables(ctx)
 		if err != nil {
@@ -75,14 +74,14 @@ Examples:
 
 		printSuccess(fmt.Sprintf("Found %d table(s)", len(tables)))
 
-		// STEP 5: Generate schema
+		// Generate schema output.
 		printInfo("Generating schema...")
 		schema, err := introspect.GenerateChameleonSchema(tables)
 		if err != nil {
 			return fmt.Errorf("schema generation failed: %w", err)
 		}
 
-		// STEP 6: Write output with safety checks
+		// Write schema output with overwrite safety checks.
 		if err := safeWriteSchema(outputFile, schema); err != nil {
 			return err
 		}
@@ -97,7 +96,7 @@ Examples:
 	},
 }
 
-// validateAndGetOutputPath valida y retorna el archivo final a usar
+// validateAndGetOutputPath validates and returns the final output path.
 func validateAndGetOutputPath(outputFile string) (string, error) {
 	// If --force is set, skip all checks
 	if introspectForce {
@@ -124,7 +123,7 @@ func validateAndGetOutputPath(outputFile string) (string, error) {
 	return checkExistingSchemaAndGetOutput(outputFile)
 }
 
-// checkExistingSchemaAndGetOutput valida schema existente y retorna el archivo final
+// checkExistingSchemaAndGetOutput validates existing schema content and returns the final output path.
 func checkExistingSchemaAndGetOutput(filePath string) (string, error) {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
@@ -162,7 +161,7 @@ func checkExistingSchemaAndGetOutput(filePath string) (string, error) {
 	return filePath, nil
 }
 
-// askOverwriteWithBackupAndGetOutput retorna el archivo final a usar
+// askOverwriteWithBackupAndGetOutput prompts for overwrite strategy and returns the selected output path.
 func askOverwriteWithBackupAndGetOutput(filePath string) (string, error) {
 	fmt.Println()
 	printError(fmt.Sprintf("Existing schema detected: %s", filePath))
@@ -200,20 +199,20 @@ func askOverwriteWithBackupAndGetOutput(filePath string) (string, error) {
 		}
 		newPath = strings.TrimSpace(newPath)
 
-		// If new path is same as old path or empty, ask again
+		// If the new path is unchanged or empty, ask again.
 		if newPath == filePath || newPath == "" {
 			printWarning("You entered the same file path!")
 			fmt.Println("Please choose a different file or select option 1 to backup and overwrite.")
 			return askOverwriteWithBackupAndGetOutput(filePath)
 		}
 
-		// If new path don't hace .cham extension, add it
+		// Add .cham extension when missing.
 		if !strings.HasSuffix(newPath, ".cham") {
 			newPath += ".cham"
 			printInfo(fmt.Sprintf("Auto-added .cham extension: %s", newPath))
 		}
 
-		// Validate the new path recursively.
+		// Re-validate the new destination.
 		return validateAndGetOutputPath(newPath)
 
 	case "3":
@@ -222,38 +221,6 @@ func askOverwriteWithBackupAndGetOutput(filePath string) (string, error) {
 	default:
 		return "", fmt.Errorf("invalid choice")
 	}
-}
-
-// checkExistingSchema validates an existing schema.cham
-func checkExistingSchema(filePath string) error {
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to read existing schema: %w", err)
-	}
-
-	schemaContent := string(content)
-
-	// Check 1: Is it the default generated schema from 'chameleon init'?
-	if isDefaultSchema(schemaContent) {
-		printWarning("Found default schema.cham from 'chameleon init'")
-		return askOverwrite(filePath)
-	}
-
-	// Check 2: Is it a modified schema?
-	if isModifiedSchema(schemaContent) {
-		printError("Found modified schema.cham with custom entities!")
-		fmt.Println()
-		printWarning("⚠️  This appears to be a working schema file")
-		fmt.Println()
-		return askOverwriteWithBackup(filePath)
-	}
-
-	// Check 3: Is it empty or just comments?
-	if isEmpty(schemaContent) {
-		return askOverwrite(filePath)
-	}
-
-	return nil
 }
 
 // isDefaultSchema checks if schema matches the default template from 'init'
@@ -319,56 +286,7 @@ func askOverwrite(filePath string) error {
 	return nil
 }
 
-// askOverwriteWithBackup prompts user and offers to create a backup
-func askOverwriteWithBackup(filePath string) error {
-	fmt.Println()
-	printError(fmt.Sprintf("Existing schema detected: %s", filePath))
-	fmt.Println()
-	fmt.Println("Options:")
-	fmt.Println("  1. Create backup and overwrite (recommended)")
-	fmt.Println("  2. Use different output file")
-	fmt.Println("  3. Cancel")
-	fmt.Println()
-	fmt.Print("Choose option (1-3): ")
-
-	reader := bufio.NewReader(os.Stdin)
-	choice, err := reader.ReadString('\n')
-	if err != nil {
-		return err
-	}
-
-	choice = strings.TrimSpace(choice)
-
-	switch choice {
-	case "1":
-		// Create backup
-		backupFile := filePath + ".backup"
-		if err := copyFile(filePath, backupFile); err != nil {
-			return fmt.Errorf("failed to create backup: %w", err)
-		}
-		printSuccess(fmt.Sprintf("Backup created: %s", backupFile))
-		return nil
-
-	case "2":
-		fmt.Print("Enter new output file path: ")
-		newPath, err := reader.ReadString('\n')
-		if err != nil {
-			return err
-		}
-		newPath = strings.TrimSpace(newPath)
-		// Keep the selected output path for this command execution.
-		introspectOutput = newPath
-		return nil
-
-	case "3":
-		return fmt.Errorf("introspection cancelled")
-
-	default:
-		return fmt.Errorf("invalid choice")
-	}
-}
-
-// copyFile creates a backup of the existing schema
+// copyFile creates a backup copy of an existing schema file.
 func copyFile(src, dst string) error {
 	content, err := os.ReadFile(src)
 	if err != nil {
@@ -377,7 +295,7 @@ func copyFile(src, dst string) error {
 	return os.WriteFile(dst, content, 0644)
 }
 
-// safeWriteSchema writes schema to file with proper error handling
+// safeWriteSchema writes schema content to disk.
 func safeWriteSchema(filePath string, schema string) error {
 	if err := os.WriteFile(filePath, []byte(schema), 0644); err != nil {
 		return fmt.Errorf("failed to write schema: %w", err)

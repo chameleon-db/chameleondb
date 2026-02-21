@@ -52,24 +52,37 @@ func (pi *postgresIntrospector) ListTables(ctx context.Context) ([]string, error
 }
 
 func (pi *postgresIntrospector) InspectTable(ctx context.Context, tableName string) (*TableInfo, error) {
-	// Query columns
 	rows, err := pi.conn.Query(ctx, `
-		SELECT 
+		SELECT
 			c.column_name,
 			c.data_type,
 			c.is_nullable,
-			COALESCE(tc.constraint_type = 'PRIMARY KEY', false) as is_primary,
-			COALESCE(tc.constraint_type = 'UNIQUE', false) as is_unique,
+			EXISTS (
+				SELECT 1
+				FROM information_schema.table_constraints tc
+				JOIN information_schema.key_column_usage kcu
+					ON tc.constraint_name = kcu.constraint_name
+					AND tc.table_schema = kcu.table_schema
+				WHERE tc.table_schema = c.table_schema
+					AND tc.table_name = c.table_name
+					AND tc.constraint_type = 'PRIMARY KEY'
+					AND kcu.column_name = c.column_name
+			) AS is_primary,
+			EXISTS (
+				SELECT 1
+				FROM information_schema.table_constraints tc
+				JOIN information_schema.key_column_usage kcu
+					ON tc.constraint_name = kcu.constraint_name
+					AND tc.table_schema = kcu.table_schema
+				WHERE tc.table_schema = c.table_schema
+					AND tc.table_name = c.table_name
+					AND tc.constraint_type = 'UNIQUE'
+					AND kcu.column_name = c.column_name
+			) AS is_unique,
 			c.column_default
 		FROM information_schema.columns c
-		LEFT JOIN information_schema.table_constraints tc
-			ON c.table_name = tc.table_name
-			AND c.column_name = ANY(
-				SELECT column_name 
-				FROM information_schema.key_column_usage 
-				WHERE constraint_name = tc.constraint_name
-			)
-		WHERE c.table_name = $1
+		WHERE c.table_schema = 'public'
+			AND c.table_name = $1
 		ORDER BY c.ordinal_position
 	`, tableName)
 	if err != nil {
@@ -104,7 +117,6 @@ func (pi *postgresIntrospector) InspectTable(ctx context.Context, tableName stri
 		col.PrimaryKey = isPrimary
 		col.Unique = isUnique
 
-		// Query foreign keys
 		fkRows, err := pi.conn.Query(ctx, `
 			SELECT ccu.table_name, ccu.column_name, tc.constraint_name
 			FROM information_schema.table_constraints tc
@@ -119,7 +131,6 @@ func (pi *postgresIntrospector) InspectTable(ctx context.Context, tableName stri
 			AND kcu.column_name = $2
 		`, tableName, col.Name)
 		if err == nil {
-			defer fkRows.Close()
 			for fkRows.Next() {
 				var refTable, refCol, fkName string
 				if err := fkRows.Scan(&refTable, &refCol, &fkName); err == nil {
@@ -130,9 +141,14 @@ func (pi *postgresIntrospector) InspectTable(ctx context.Context, tableName stri
 					}
 				}
 			}
+			fkRows.Close()
 		}
 
 		table.Columns = append(table.Columns, col)
+	}
+
+	if len(table.Columns) == 0 {
+		return nil, fmt.Errorf("table %s not found or has no columns", tableName)
 	}
 
 	return table, rows.Err()

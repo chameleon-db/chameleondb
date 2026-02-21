@@ -43,13 +43,22 @@ test-integration:
 	docker compose -f docker-compose.test.yml up -d
 
 	@echo "Waiting for PostgreSQL..."
-	@sleep 5
+	@for i in $$(seq 1 30); do \
+		docker compose -f docker-compose.test.yml exec -T postgres \
+			pg_isready -U $(TEST_DB_USER) -d $(TEST_DB_NAME) >/dev/null 2>&1 && break; \
+		if [ $$i -eq 30 ]; then \
+			echo "PostgreSQL did not become ready in time"; \
+			docker compose -f docker-compose.test.yml down; \
+			exit 1; \
+		fi; \
+		sleep 1; \
+	done
 
 	@echo "Running integration tests..."
 	CGO_LDFLAGS="-L$(shell pwd)/../chameleon-core/target/release -lchameleon_core" \
 	CGO_CFLAGS="-I$(shell pwd)/../chameleon-core/include" \
 	LD_LIBRARY_PATH=$(shell pwd)/../chameleon-core/target/release \
-	go test -v ./tests/integration/... -timeout 60s || \
+	go test -v ./tests/integration/... -timeout 60s -count=1 || \
 	(docker compose -f docker-compose.test.yml down && exit 1)
 
 	@echo "Stopping test containers..."
