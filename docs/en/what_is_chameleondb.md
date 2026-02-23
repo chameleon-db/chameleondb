@@ -79,7 +79,7 @@ There is no virtual machine or bytecode runtime.
 
 You describe entities, fields, relationships, and annotations using the ChameleonDB language:
 
-```rust
+```go
 entity User {
     id: uuid primary,
     email: string unique,
@@ -115,8 +115,9 @@ If validation fails, you get clear, contextual error messages before any code ru
 The runtime executes queries against configured backends:
 
 ```go
+// Note: V1.0 use string-base filter. See Query reference for more detaile.
 users := db.Users().
-    Filter(expr.Field("email").Eq("ana@mail.com")).
+    Filter("email", "eq", "ana@mail.com").
     Include("orders").
     Execute()
 ```
@@ -235,23 +236,41 @@ chameleondb/
 
 ---
 
-## Current status
+## Current Status
 
-ChameleonDB is in **early development (v0.1)**.
+ChameleonDB **v1.0-alpha** is now available.
 
 **What works today:**
-- Schema DSL with entities, fields, relations, and backend annotations
-- Parser with full syntax support (Rust core, LALRPOP)
-- Type checker with compile-time validation (relations, constraints, cycles)
-- Runtime with CLI tool (Go)
-- Field types: `uuid`, `string`, `int`, `decimal`, `bool`, `timestamp`, `float`, `vector(N)`, arrays
-- Backend annotations: `@cache`, `@olap`, `@vector`, `@ml` (declarative, not yet routed)
-- 27 tests passing across the full stack
+- ✅ Schema DSL with entities, fields, relations, backend annotations
+- ✅ Parser with full syntax (Rust core, LALRPOP)
+- ✅ Type checker with validation (relations, constraints, cycles)
+- ✅ **Schema Vault** - Versioned, hash-verified schemas
+- ✅ **Integrity Modes** - Runtime governance (readonly/standard/privileged/emergency)
+- ✅ Query builder (Filter, Include, Select)
+- ✅ Mutations (Insert, Update, Delete)
+- ✅ PostgreSQL backend execution
+- ✅ Migration generation
+- ✅ **Introspection** (DB → Schema)
+- ✅ **IdentityMap** (object deduplication)
+- ✅ Debug mode (SQL visibility)
+- ✅ Complete error mapping
+- ✅ CLI tools (8 commands)
+- ✅ **204 tests passing**
 
-**What is coming next:**
-- Query builder (filter, include, select)
-- PostgreSQL backend execution
-- Backend routing based on annotations
-- Migration generation
+**Production readiness:**
+- ✅ Core features stable
+- ✅ Security model complete
+- ⏳ API may have minor changes
+- ⏳ Recommended for evaluation and non-critical workloads
 
-ChameleonDB still is not ready for production use.
+**What's coming next (v1.1+):**
+- Transaction support
+- Batch operations
+- Code generator (schema-driven boilerplate)
+- Performance benchmarks
+
+**Future (v2.0 - Premium):**
+- Backend routing (multi-database)
+- ML-based query optimization
+- Visual schema editor
+- Distributed vault

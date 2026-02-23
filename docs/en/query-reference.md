@@ -8,7 +8,7 @@ Every query targets an entity defined in your schema and is
 validated against it before execution.
 
 All examples use this schema:
-```rust
+```go
 entity User {
     id: uuid primary,
     email: string unique,
@@ -398,8 +398,6 @@ These features are **not supported** in the current version:
 - Aggregations (`count`, `sum`, `avg`)
 - Group by
 - Subqueries
-- Raw SQL escape hatch
-- Mutations (insert, update, delete)
 - Transactions
 
 These are planned for future versions.

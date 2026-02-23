@@ -4,7 +4,7 @@ For complex queries beyond ChameleonDB's query builder, use raw SQL directly.
 
 ## Access the pgx connection pool
 
-\`\`\`go
+```go
 // Get direct access to pgx pool
 pool := engine.Connector().Pool()
 
@@ -17,7 +17,7 @@ rows, err := pool.Query(ctx, `
     HAVING COUNT(p.id) > 5
     ORDER BY post_count DESC
 `)
-\`\`\`
+```
 
 ## When to use Raw SQL
 
