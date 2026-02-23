@@ -38,9 +38,11 @@ jobs:
       - name: Upload Rust coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: chameleon-core/coverage-rust.lcov
           flags: rust
           name: rust-coverage
+          fail_ci_if_error: false
 
   coverage-go-unit:
     name: Go Unit Tests Coverage
@@ -87,9 +89,11 @@ jobs:
       - name: Upload Go unit coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: chameleon/coverage-go-unit.out
           flags: go,unit
           name: go-unit-coverage
+          fail_ci_if_error: false
 
   coverage-go-integration:
     name: Go Integration Tests Coverage
@@ -150,6 +154,8 @@ jobs:
       - name: Upload Go integration coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: chameleon/coverage-go-integration.out
           flags: go,integration
           name: go-integration-coverage
+          fail_ci_if_error: false

@@ -403,10 +403,10 @@ chameleondb/
 ## Testing
 
 **Test coverage:**
-- Rust: 94 tests ✅
-- Go: 80 tests ✅
+- Rust: 96 tests ✅
+- Go: 188 tests ✅
 - Integration: 30 tests ✅
-- **Total: 204 tests passing**
+- **Total: 314 tests passing**
 
 **Test categories:**
 - Parser tests (syntax, error handling)

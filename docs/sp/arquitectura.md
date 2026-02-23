@@ -406,10 +406,10 @@ chameleondb/
 ## Testing
 
 **Cobertura de tests:**
-- Rust: 94 tests ✅
-- Go: 80 tests ✅
+- Rust: 96 tests ✅
+- Go: 188 tests ✅
 - Integración: 30 tests ✅
-- **Total: 204 tests pasando**
+- **Total: 314 tests pasando**
 
 **Categorías de tests:**
 - Tests del parser (sintaxis, manejo de errores)
