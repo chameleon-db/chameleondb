@@ -1,147 +1,184 @@
 # Changelog
+All notable changes to this project will be documented in this file.
 
-All notable changes to ChameleonDB will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on Keep a Changelog,
+and this project adheres to Semantic Versioning (pre-1.0).
 
 ---
 
 ## [Unreleased]
 
-### 🏗️ Current Focus: Type Checker + Schema Validation
+### Added
+- Enforced vault-based schema loading model for the engine.
+- New `status` and `verify` commands for runtime and schema health checks.
+- Improved security model documentation aligned with vault-only execution.
 
-The core stack is fully operational and now includes compile-time schema validation.
-Schemas are parsed, type-checked, and validated before reaching the runtime.
+### Changed
+- Refactored documentation structure and clarified engine security guarantees.
+- Hardened schema loading paths to prevent non-vault execution.
 
-**Stack:** `.cham` → `Rust Parser` → `Type Checker` → `FFI (C ABI)` → `Go Runtime` → `CLI` ✅
+### Fixed
+- Corrected `pkg-config` installation logic in install scripts.
+- Normalized internal library naming conventions.
 
 ---
+
+## [0.2.6-alpha] – 2026-02
 
 ### Added
+- Updated installation and uninstallation scripts supporting:
+  - New shared library layout
+  - `pkg-config` integration
+- Improved uninstall flow with user confirmation and verbose output.
 
-#### Core Parser (Rust)
-- LALRPOP-based schema parser with complete DSL support
-- AST representation for entities, fields, and relations
-- Field types: `uuid`, `string`, `int`, `decimal`, `bool`, `timestamp`, `float`
-- Extended types: `vector(N)` parameterized, `[type]` arrays
-- Field modifiers: `primary`, `unique`, `nullable`, `default`
-- Default value functions: `now()`, `uuid_v4()`
-- Relation types: `HasOne`, `HasMany`, `BelongsTo` (ManyToMany pending)
-- Backend annotations: `@cache`, `@olap`, `@vector`, `@ml`
-- Serde serialization for all AST types
-
-#### Type Checker (Rust)
-- Relation validation: target entity existence, foreign key consistency
-- HasMany enforcement: requires explicit `via` foreign key
-- Primary key validation: exactly one per entity (detects missing or multiple)
-- Annotation consistency: `@vector` only valid with `vector(N)` type
-- Constraint guards: `@backend` annotations blocked on `primary` and `unique` fields
-- Circular dependency detection via DFS (correctly skips `BelongsTo` inverse relations)
-- Granular error types with full entity/field context
-- Formatted error reports for CLI output
-
-#### FFI Layer (Rust ↔ Go Bridge)
-- C ABI interface with stable function signatures
-- JSON serialization for data interchange
-- Safe memory management with explicit free functions
-- Error propagation with `error_out` parameter pattern
-- `chameleon_validate_schema` now runs the full type checker
-- Functions: `chameleon_parse_schema`, `chameleon_validate_schema`, `chameleon_free_string`, `chameleon_version`
-
-#### Go Runtime
-- CGO wrapper for Rust core (`internal/ffi`)
-- Engine API for schema loading (`pkg/engine`)
-- Schema type definitions mirroring Rust AST (with custom JSON marshal/unmarshal)
-- Load schema from string or `.cham` file
-- RPATH linking for standalone binaries
-
-#### CLI Tool
-- `chameleon version` — Show library version
-- `chameleon parse <file>` — Parse schema and output JSON
-- `chameleon validate <file>` — Validate schema with full type checking
-
-#### Build System
-- Makefile orchestrating Rust + Go builds
-- Library path management (LD_LIBRARY_PATH + RPATH)
-- CGO configuration for FFI linking
-
-#### Documentation
-- README with project overview
-- Architecture diagrams (Mermaid)
-- `docs/en/what_is_chameleondb.md` — Project identity and philosophy
-- Example schema (`examples/basic_schema.cham`)
-- Bilingual docs structure (`docs/en/`, `docs/sp/`)
+### Fixed
+- Corrected `pkg-config` file installation paths on Unix systems.
 
 ---
 
-### Test Coverage
+## [0.2.5-alpha] – 2026-01
 
-**Total: 27 tests passing** ✅
+### Added
+- Enhanced entity name generation with singularization logic.
+- Validation tests for entity naming consistency.
+- Improved introspection logging and diagnostics.
+- Additional vault-mode checks during introspection.
 
-| Layer | Tests | Status |
-|-------|-------|--------|
-| Parser (basic) | 7 | ✅ |
-| Parser (extended types + annotations) | 4 | ✅ |
-| Type Checker | 13 | ✅ |
-| FFI unit tests | 5 | ✅ |
-| FFI integration | 3 | ✅ |
-
-#### Type Checker Test Breakdown
-- Valid schemas: simple, with relations, with annotations
-- Relation errors: unknown target, invalid FK, missing FK on HasMany
-- Primary key errors: missing, multiple
-- Annotation errors: wrong vector type, annotation on PK, annotation on unique
-- Circular dependency: A → B → C → A detection
-- Error report formatting
+### Fixed
+- Paranoid mode validation during `introspect`.
+- Connection string resolution issues in introspection workflows.
 
 ---
 
-### Verified Capabilities
+## [0.2.4-alpha]
 
-Successfully parses and validates complex schemas with:
-- Multiple entities with bidirectional relations (User ↔ Order ↔ OrderItem)
-- All field types including `vector(N)` and primitive arrays
-- Mixed backend annotations (`@cache`, `@olap`, `@vector`)
-- Constraints (`primary`, `unique`, `nullable`, `default`)
-- Deep validation catching schema errors at compile time
+### Changed
+- Minor internal version upgrade and stabilization.
 
 ---
 
-### Known Limitations
-- No query builder yet (coming next)
-- No database execution yet
-- No code generation yet
-- `ManyToMany` relations not implemented
-- Backend annotations are declarative only (routing comes later)
-- No migration generation yet
+## [0.2.3-alpha]
+
+### Added
+- `status` and `verify` commands for:
+  - Schema integrity
+  - Vault consistency
+  - Engine readiness
 
 ---
 
-## [0.1.0] - TBD
+## [0.2.2-alpha]
 
-Initial MVP release.
+### Added
+- Mutation execution layer with:
+  - Full PostgreSQL error mapping
+  - Structured error propagation across FFI
+- IdentityMap-based row deduplication during query execution.
+- Improved eager query path handling and relation mapping.
 
-### Roadmap to v0.1 Completion
-- [ ] Query builder (filter, include, select)
-- [ ] PostgreSQL backend execution
-- [ ] Migration generation
-- [ ] Performance benchmarks
-- [ ] Documentation polish
+### Changed
+- Refactored engine mutation handling and error contracts.
+- Migration generation now includes safe FK `DROP` statements.
 
----
-
-## Development Timeline
-
-| Phase | Status | What |
-|-------|--------|------|
-| Week 1-2 | ✅ Done | Parser + FFI + Go Runtime |
-| Week 2-3 | ✅ Done | Multi-backend annotations + extended types |
-| Week 3-4 | ✅ Done | Type Checker + deep validation |
-| Week 4-5 | 🚧 Next | Query Builder |
-| Week 5-6 | ⏳ Upcoming | PostgreSQL execution |
-| Week 7-8 | ⏳ Upcoming | Migrations + production hardening |
+### Fixed
+- Cyclical import issues in mutation factory initialization.
+- Improved error diagnostics for constraint violations.
 
 ---
 
-*Last updated: 2026-02-01*
+## [0.2.1-alpha]
+
+### Changed
+- Updated README roadmap and milestone descriptions.
+
+---
+
+## [0.2.0-alpha]
+
+### Added
+- Administrative structure (`.chameleon/`)
+- Journaling system for schema and migration state.
+- Multi-file schema support.
+- Updated `init` and `migrate` commands aligned with admin layout.
+
+### Changed
+- Configuration loading via `.chameleon.yml`.
+
+---
+
+## [0.1.5-alpha]
+
+### Added
+- Administrative structure and journaling foundation.
+- Schema lifecycle management.
+- Migration command enhancements.
+
+---
+
+## [0.1.4-alpha]
+
+### Added
+- Windows support in release pipeline.
+- Cross-platform installer updates.
+
+---
+
+## [0.1.3-alpha]
+
+### Changed
+- Release workflow simplification and artifact stabilization.
+
+---
+
+## [0.1.2-alpha]
+
+### Changed
+- Improved release artifacts with SHA verification.
+- Simplified CI matrix.
+
+---
+
+## [0.1.1-alpha]
+
+### Added
+- Database introspection infrastructure (PostgreSQL).
+- `DATABASE_URL` support for cloud-native deployments.
+- Structured debug and query tracing infrastructure.
+
+---
+
+## [0.1.0-beta]
+
+### Added
+- `check --json` CLI command for editor and tooling integration.
+- Structured JSON error model across:
+  - Parser
+  - Core
+  - FFI
+  - CLI
+- Rich error output with position, context, and suggestions.
+
+---
+
+## [0.1.0]
+
+### Added
+- SQL generator and Go Query Builder.
+- PostgreSQL connector and executor.
+- End-to-end integration tests with Docker.
+- Schema DSL with type checking and validation.
+- Migration generation from validated schemas.
+- Rust ↔ Go FFI bridge.
+- CLI implemented with Cobra.
+- Full parser implementation using LALRPOP.
+- Documentation:
+  - Architecture overview
+  - Query reference
+  - Project philosophy
+
+---
+
+## [0.0.1]
+
+### Added
+- Initial schema parser, AST, and runtime foundations.

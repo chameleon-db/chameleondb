@@ -1,36 +1,37 @@
-# Quick Start Guide
+# Guía de Inicio Rápido
 
-Get started with ChameleonDB in 5 minutes.
+Empezá con ChameleonDB en 5 minutos.
 
 ---
 
-## Prerequisites
+## Prerrequisitos
 
 - Go 1.21+
 - PostgreSQL 14+
-- ChameleonDB CLI installed
+- CLI de ChameleonDB instalado
 
-**Install ChameleonDB:**
+**Instalar ChameleonDB:**
 ```bash
 curl -sSL https://chameleondb.dev/install | sh
 ```
 
-Or build from source:
+O compilar desde el fuente:
 ```bash
 git clone https://github.com/chameleon-db/chameleondb.git
 cd chameleondb/chameleon
+make build
 make install
 ```
 
-**Verify installation:**
+**Verificar la instalación:**
 ```bash
 chameleon --version
-# Output: chameleon v1.0-alpha
+# Salida: chameleon v1.0-alpha
 ```
 
 ---
 
-## Step 1: Initialize Project
+## Paso 1: Inicializar Proyecto
 
 ```bash
 mkdir my-app
@@ -38,26 +39,26 @@ cd my-app
 chameleon init
 ```
 
-**What happens:**
-- Creates `.chameleon/` directory
-- Initializes Schema Vault
-- Creates default `schema.cham`
-- Sets mode to `readonly`
+**Qué sucede:**
+- Crea el directorio `.chameleon/`
+- Inicializa el Schema Vault
+- Crea el archivo `schema.cham` por defecto
+- Establece el modo en `readonly`
 
-**Output:**
+**Salida:**
 ```
-✅ Created .chameleon/ directory
-✅ Schema Vault initialized
-✅ Created schema.cham
+✅ Directorio .chameleon/ creado
+✅ Schema Vault inicializado
+✅ schema.cham creado
 ℹ️  Paranoid Mode: readonly
-💡 Tip: Set mode password with 'chameleon config auth set-password'
+💡 Tip: Establecé la contraseña del modo con 'chameleon config auth set-password'
 ```
 
 ---
 
-## Step 2: Define Your Schema
+## Paso 2: Definir tu Schema
 
-Edit `schema.cham`:
+Editá `schema.cham`:
 
 ```go
 entity User {
@@ -79,40 +80,40 @@ entity Post {
 }
 ```
 
-**Validate:**
+**Validar:**
 ```bash
 chameleon validate
 ```
 
-**Output:**
+**Salida:**
 ```
-✅ Schema validated successfully
-   Entities: 2 (User, Post)
-   Relations: 2 (users.posts, posts.author)
+✅ Schema validado exitosamente
+   Entidades: 2 (User, Post)
+   Relaciones: 2 (users.posts, posts.author)
 ```
 
 ---
 
-## Step 3: Run Migration
+## Paso 3: Ejecutar Migración
 
-**Set DATABASE_URL:**
+**Configurar DATABASE_URL:**
 ```bash
-export DATABASE_URL="postgresql://user:password@localhost:5432/mydb"
+export DATABASE_URL="postgresql://usuario:contraseña@localhost:5432/mydb"
 ```
 
-**Run migration:**
+**Ejecutar migración:**
 ```bash
 chameleon migrate --apply
 ```
 
-**Output:**
+**Salida:**
 ```
-📦 Initializing Schema Vault...
-   ✓ Created .chameleon/vault/
-   ✓ Registered schema as v001
+📦 Inicializando Schema Vault...
+   ✓ .chameleon/vault/ creado
+   ✓ Schema registrado como v001
    ✓ Hash: 3f2a8b9c...
 
-📋 Migration Preview:
+📋 Vista Previa de la Migración:
 ─────────────────────────────────────────────────
 CREATE TABLE users (
     id UUID PRIMARY KEY,
@@ -131,21 +132,21 @@ CREATE TABLE posts (
 );
 ─────────────────────────────────────────────────
 
-✅ Migration applied successfully
-✅ Schema v001 locked in vault
+✅ Migración aplicada exitosamente
+✅ Schema v001 bloqueado en vault
 ```
 
 ---
 
-## Step 4: Use in Your Application
+## Paso 4: Usar en tu Aplicación
 
-**Initialize Go module:**
+**Inicializar módulo Go:**
 ```bash
 go mod init my-app
 go get github.com/chameleon-db/chameleondb/chameleon
 ```
 
-**Create `main.go`:**
+**Crear `main.go`:**
 ```go
 package main
 
@@ -161,27 +162,27 @@ import (
 func main() {
     ctx := context.Background()
     
-    // Connect (loads schema from vault automatically)
+    // Conectar (carga el schema desde vault automáticamente)
     eng, err := engine.NewEngine()
     if err != nil {
         log.Fatal(err)
     }
     defer eng.Close()
     
-    // Insert user
+    // Insertar usuario
     result, err := eng.Insert("User").
         Set("id", uuid.New().String()).
         Set("email", "ana@mail.com").
-        Set("name", "Ana Garcia").
+        Set("name", "Ana García").
         Execute(ctx)
     
     if err != nil {
         log.Fatal(err)
     }
     
-    fmt.Printf("User created: %v\n", result.ID)
+    fmt.Printf("Usuario creado: %v\n", result.ID)
     
-    // Query users
+    // Consultar usuarios
     users, err := eng.Query("User").
         Filter("email", "eq", "ana@mail.com").
         Execute(ctx)
@@ -191,28 +192,28 @@ func main() {
     }
     
     for _, user := range users.Rows {
-        fmt.Printf("User: %s <%s>\n", user["name"], user["email"])
+        fmt.Printf("Usuario: %s <%s>\n", user["name"], user["email"])
     }
 }
 ```
 
-**Run:**
+**Ejecutar:**
 ```bash
 go run main.go
 ```
 
-**Output:**
+**Salida:**
 ```
-User created: 550e8400-e29b-41d4-a716-446655440000
-User: Ana Garcia <ana@mail.com>
+Usuario creado: 550e8400-e29b-41d4-a716-446655440000
+Usuario: Ana García <ana@mail.com>
 ```
 
 ---
 
-## Step 5: Query with Relations
+## Paso 5: Consultar con Relaciones
 
 ```go
-// Query users with their posts
+// Consultar usuarios con sus posts
 result, err := eng.Query("User").
     Select("id", "name", "email").
     Include("posts").
@@ -223,7 +224,7 @@ if err != nil {
 }
 
 for _, user := range result.Rows {
-    fmt.Printf("User: %s\n", user["name"])
+    fmt.Printf("Usuario: %s\n", user["name"])
     
     if posts, ok := result.Relations["posts"]; ok {
         fmt.Printf("  Posts: %d\n", len(posts))
@@ -236,18 +237,18 @@ for _, user := range result.Rows {
 
 ---
 
-## Step 6: Debug Mode
+## Paso 6: Modo Debug
 
-See generated SQL:
+Ver el SQL generado:
 
 ```go
 result, err := eng.Query("User").
     Filter("email", "like", "ana").
-    Debug().  // ← Shows SQL
+    Debug().  // ← Muestra el SQL
     Execute(ctx)
 ```
 
-**Output:**
+**Salida:**
 ```
 [SQL] Query User
 SELECT * FROM users WHERE email LIKE '%ana%'
@@ -257,56 +258,56 @@ SELECT * FROM users WHERE email LIKE '%ana%'
 
 ---
 
-## Next Steps
+## Próximos Pasos
 
-### Explore Features
+### Explorar Funcionalidades
 
-**Mutations:**
+**Mutaciones:**
 ```bash
-# See examples
+# Ver ejemplos
 cat examples/mutations/
 ```
 
 **Schema Vault:**
 ```bash
-# View version history
+# Ver historial de versiones
 chameleon journal schema
 
-# Verify integrity
+# Verificar integridad
 chameleon verify
 
-# Check status
+# Ver estado
 chameleon status
 ```
 
-**Introspection:**
+**Introspección:**
 ```bash
-# Generate schema from existing DB
+# Generar schema desde DB existente
 chameleon introspect $DATABASE_URL
 ```
 
-### Learn More
+### Aprender Más
 
-- [Architecture](architecture.md) - System design
-- [Query Reference](query-reference.md) - Complete API
-- [Security Model](SECURITY.md) - Vault & modes
-- [Introspection](introspection.md) - DB → Schema
+- [Arquitectura](arquitectura.md) - Diseño del sistema
+- [Query Reference](query_reference_sp.md) - API completa
+- [Modelo de Seguridad](SECURITY_sp.md) - Vault y modos
+- [Introspection](introspect_sp.md) - DB → Schema
 
 ---
 
-## Common Issues
+## Problemas Comunes
 
 ### "vault not initialized"
 
 ```bash
-# Solution: Run init
+# Solución: Ejecutar init
 chameleon init
 ```
 
 ### "readonly mode: blocked"
 
 ```bash
-# Solution: Upgrade mode
+# Solución: Actualizar modo
 chameleon config auth set-password
 chameleon config set mode=standard
 ```
@@ -314,23 +315,23 @@ chameleon config set mode=standard
 ### "integrity violation"
 
 ```bash
-# Check what changed
+# Verificar qué cambió
 chameleon verify
 
-# View audit log
+# Ver log de auditoría
 cat .chameleon/vault/integrity.log
 ```
 
 ### "DATABASE_URL not set"
 
 ```bash
-# Set environment variable
-export DATABASE_URL="postgresql://user:pass@host:5432/db"
+# Configurar variable de entorno
+export DATABASE_URL="postgresql://usuario:contraseña@host:5432/db"
 ```
 
 ---
 
-## Example Projects
+## Proyectos de Ejemplo
 
 **TODO App:**
 ```bash
@@ -348,24 +349,24 @@ go run main.go
 
 ---
 
-## Getting Help
+## Obtener Ayuda
 
-- **Documentation:** https://chameleondb.dev/docs
+- **Documentación:** https://chameleondb.dev/docs
 - **GitHub Issues:** https://github.com/chameleon-db/chameleondb/issues
 - **Discord:** https://chameleondb.dev/discord
 
 ---
 
-## What's Next?
+## ¿Qué Sigue?
 
-You now know:
-- ✅ How to initialize projects
-- ✅ How to define schemas
-- ✅ How to run migrations
-- ✅ How to query data
-- ✅ How to use Debug mode
+Ya sabés:
+- ✅ Cómo inicializar proyectos
+- ✅ Cómo definir schemas
+- ✅ Cómo ejecutar migraciones
+- ✅ Cómo consultar datos
+- ✅ Cómo usar el modo Debug
 
-**Continue learning:**
-- [Query Reference](query-reference.md) - Advanced queries
-- [Security Model](SECURITY.md) - Production deployment
-- [Examples](../examples/) - Real applications
+**Seguí aprendiendo:**
+- [Query Reference](query_reference_sp.md) - Queries avanzadas
+- [Modelo de Seguridad](SECURITY_sp.md) - Despliegue en producción
+- [Ejemplos](../examples/) - Aplicaciones reales

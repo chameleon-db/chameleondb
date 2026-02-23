@@ -9,7 +9,7 @@
 [![Go Version](https://img.shields.io/badge/go-1.21%2B-00ADD8.svg)](https://golang.org)
 [![Status](https://img.shields.io/badge/status-v1.0--alpha-green)](https://github.com/chameleon-db/chameleondb)
 
-[Documentation](https://chameleondb.dev/docs) • [Examples](https://github.com/chameleon-db/chameleon-examples) • [Discord](https://chameleondb.dev/discord)
+[ 🇺🇸 Documentation](https://chameleondb.dev/docs) • [🇪🇸 Spanish documentation](docs/sp/README.md) • [Examples](https://github.com/chameleon-db/chameleon-examples) • [Discord](https://chameleondb.dev/discord)
 
 </div>
 

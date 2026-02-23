@@ -123,13 +123,6 @@ eng.LoadSchemaFromFile("untrusted.cham")
 // → Error: blocked by readonly mode
 ```
 
-**CLI tools** have explicit bypass:
-```go
-// CLI context only
-eng := engine.NewEngineForCLI()
-eng.LoadSchemaFromFile("schemas/user.cham")
-```
-
 **Purpose:** Prevent schema bypass attacks
 
 ---
