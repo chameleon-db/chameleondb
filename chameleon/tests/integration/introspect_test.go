@@ -56,16 +56,17 @@ func TestIntrospectGetAllTablesAndGenerateSchema(t *testing.T) {
 		t.Fatalf("GenerateChameleonSchema failed: %v", err)
 	}
 
-	if !strings.Contains(schema, "entity Users {") {
-		t.Fatal("expected Users entity in generated schema")
+	// toEntityName() singularizes table names: users -> User, orders -> Order
+	if !strings.Contains(schema, "entity User {") {
+		t.Fatalf("expected User entity in generated schema, got:\n%s", schema)
 	}
-	if !strings.Contains(schema, "entity Orders {") {
-		t.Fatal("expected Orders entity in generated schema")
+	if !strings.Contains(schema, "entity Order {") {
+		t.Fatalf("expected Order entity in generated schema, got:\n%s", schema)
 	}
-	if !strings.Contains(schema, "entity OrderItems {") {
-		t.Fatal("expected OrderItems entity in generated schema")
+	if !strings.Contains(schema, "entity OrderItem {") {
+		t.Fatalf("expected OrderItem entity in generated schema, got:\n%s", schema)
 	}
-	if !strings.Contains(schema, "entity Posts {") {
-		t.Fatal("expected Posts entity in generated schema")
+	if !strings.Contains(schema, "entity Post {") {
+		t.Fatalf("expected Post entity in generated schema, got:\n%s", schema)
 	}
 }

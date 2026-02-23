@@ -529,7 +529,7 @@ chameleon config set mode=readonly
 - [x] Rich error messages with suggestions
 - [x] PostgreSQL migration generator
 - [x] Database introspection (Only Postgres for now)
-- [x] 200+ tests (unit + integration)
+- [x] 300+ tests (unit + integration)
 
 ### 🚧 Coming Soon (v1.1 - March 2026)
 

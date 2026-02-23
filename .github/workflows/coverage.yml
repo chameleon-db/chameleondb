@@ -73,9 +73,16 @@ jobs:
           CGO_CFLAGS: "-I${{ github.workspace }}/chameleon-core/include"
           LD_LIBRARY_PATH: "${{ github.workspace }}/chameleon/lib"
         run: |
-          go test $(go list ./... | grep -v '/tests/integration') \
-            -covermode=atomic \
-            -coverprofile=coverage-go-unit.out
+          # Generate coverage for each package separately to avoid covdata issues
+          PACKAGES=$(go list ./... | grep -v '/tests/integration')
+          echo "mode: atomic" > coverage-go-unit.out
+          for pkg in $PACKAGES; do
+            go test -covermode=atomic -coverprofile=profile.out "$pkg" || true
+            if [ -f profile.out ]; then
+              tail -n +2 profile.out >> coverage-go-unit.out
+              rm profile.out
+            fi
+          done
 
       - name: Upload Go unit coverage to Codecov
         uses: codecov/codecov-action@v5
@@ -136,6 +143,7 @@ jobs:
           CHAMELEON_TEST_DB_PASS: postgres
         run: |
           go test ./tests/integration/... \
+            -v \
             -covermode=atomic \
             -coverprofile=coverage-go-integration.out
 
