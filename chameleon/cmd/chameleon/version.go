@@ -12,7 +12,7 @@ var versionCmd = &cobra.Command{
 	Short: "Show ChameleonDB version",
 	Long:  "Display the current version of ChameleonDB CLI and core library",
 	Run: func(cmd *cobra.Command, args []string) {
-		eng := engine.NewEngine()
+		eng := engine.NewEngineForCLI()
 		version := eng.Version()
 
 		fmt.Printf("ChameleonDB v%s\n", version)

@@ -49,8 +49,13 @@ func setupTestDB(t *testing.T) (*engine.Engine, context.Context, func()) {
 	ctx := context.Background()
 
 	// Load schema
-	eng := engine.NewEngine()
-	_, err := eng.LoadSchemaFromFile("../fixtures/test_schema.cham")
+	eng := engine.NewEngineForCLI()
+	schemaContent, readErr := os.ReadFile("../fixtures/test_schema.cham")
+	if readErr != nil {
+		t.Fatalf("Failed to read test schema: %v", readErr)
+	}
+
+	_, err := eng.LoadSchemaFromString(string(schemaContent))
 	if err != nil {
 		t.Fatalf("Failed to load test schema: %v", err)
 	}

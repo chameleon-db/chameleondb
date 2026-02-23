@@ -216,7 +216,7 @@ func TestDebugPrefixes(t *testing.T) {
 
 // TestEngineWithDebug verifies engine debug context
 func TestEngineWithDebug(t *testing.T) {
-	eng := NewEngine()
+	eng := NewEngineWithoutSchema()
 	assert.Equal(t, DebugNone, eng.Debug.Level)
 
 	eng2 := eng.WithDebug(DebugSQL)
@@ -228,7 +228,7 @@ func TestEngineWithDebug(t *testing.T) {
 
 // TestQueryBuilderDebugMethods verifies query-level debug flags
 func TestQueryBuilderDebugMethods(t *testing.T) {
-	eng := NewEngine()
+	eng := NewEngineWithoutSchema()
 	eng.schema = setupTestSchema()
 
 	qb := eng.Query("User")
@@ -274,7 +274,7 @@ func TestGetDebugContext(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eng := NewEngine()
+			eng := NewEngineWithoutSchema()
 			eng.Debug.Level = tt.engineLevel
 
 			qb := eng.Query("User")

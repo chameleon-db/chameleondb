@@ -161,7 +161,7 @@ Examples:
 
 		// Load and merge schemas
 		printInfo("Loading schemas from: %v", cfg.Schema.Paths)
-		eng := engine.NewEngine()
+		eng := engine.NewEngineForCLI()
 
 		// Load all schema files using FileLoader
 		loader := schema.NewFileLoader(cfg.Schema.Paths)
@@ -228,7 +228,14 @@ Examples:
 		printSuccess("Schema loaded and validated")
 
 		// Save merged schema to temp file for vault registration
-		mergedSchemaPath := filepath.Join(workDir, ".chameleon", "state", "schema.merged.cham")
+		mergedSchemaPath := cfg.Schema.MergedOutput
+		if strings.TrimSpace(mergedSchemaPath) == "" {
+			mergedSchemaPath = filepath.Join(workDir, ".chameleon", "state", "schema.merged.cham")
+		}
+		if err := os.MkdirAll(filepath.Dir(mergedSchemaPath), 0755); err != nil {
+			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "ensure_merged_schema_dir"})
+			return fmt.Errorf("failed to prepare merged schema directory: %w", err)
+		}
 		if err := os.WriteFile(mergedSchemaPath, []byte(mergedSchema), 0644); err != nil {
 			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "save_merged_schema"})
 			return fmt.Errorf("failed to save merged schema: %w", err)

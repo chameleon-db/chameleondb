@@ -60,7 +60,7 @@ func Defaults() *Config {
 		},
 		Schema: SchemaConfig{
 			Paths:            []string{"./schemas"},
-			MergedOutput:     ".chameleon/state/schema.merged.json",
+			MergedOutput:     ".chameleon/state/schema.merged.cham",
 			ValidationStrict: false,
 		},
 		Features: FeaturesConfig{

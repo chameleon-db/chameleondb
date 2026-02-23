@@ -175,7 +175,7 @@ func TestQueryResultHelpers(t *testing.T) {
 }
 
 func TestEngineNotConnected(t *testing.T) {
-	eng := NewEngine()
+	eng := NewEngineWithoutSchema()
 
 	if eng.IsConnected() {
 		t.Error("New engine should not be connected")

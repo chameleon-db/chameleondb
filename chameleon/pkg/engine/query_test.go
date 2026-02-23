@@ -7,7 +7,7 @@ import (
 func setupTestEngine(t *testing.T) *Engine {
 	t.Helper()
 
-	e := NewEngine()
+	e := NewEngineForCLI()
 	_, err := e.LoadSchemaFromString(`
 		entity User {
 			id: uuid primary,
@@ -173,7 +173,7 @@ func TestQueryBuilder_FullQuery(t *testing.T) {
 }
 
 func TestQueryBuilder_NoSchema(t *testing.T) {
-	e := NewEngine() // No schema loaded
+	e := NewEngineWithoutSchema() // No schema loaded
 
 	_, err := e.Query("User").ToSQL()
 	if err == nil {

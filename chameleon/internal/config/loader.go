@@ -154,8 +154,8 @@ schema:
   paths:
     - "./schemas"
   
-  # Where to save merged schema (for reference)
-  merged_output: ".chameleon/state/schema.merged.json"
+	# Where to save merged schema (runtime source of truth)
+	merged_output: ".chameleon/state/schema.merged.cham"
   
   # Fail on validation warnings
   validation_strict: false

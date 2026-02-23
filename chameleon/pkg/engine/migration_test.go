@@ -5,7 +5,7 @@ import (
 )
 
 func TestGenerateMigration(t *testing.T) {
-	eng := NewEngine()
+	eng := NewEngineForCLI()
 	_, err := eng.LoadSchemaFromString(`
 		entity User {
 			id: uuid primary,
@@ -36,7 +36,7 @@ func TestGenerateMigration(t *testing.T) {
 }
 
 func TestGenerateMigrationNoSchema(t *testing.T) {
-	eng := NewEngine()
+	eng := NewEngineWithoutSchema()
 
 	_, err := eng.GenerateMigration()
 	if err == nil {

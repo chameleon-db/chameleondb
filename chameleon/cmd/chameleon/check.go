@@ -33,7 +33,7 @@ Examples:
   chameleon check --json < schema.cham`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		eng := engine.NewEngine()
+		eng := engine.NewEngineForCLI()
 		// Determine schema file or read from stdin
 		var input string
 		var filename string

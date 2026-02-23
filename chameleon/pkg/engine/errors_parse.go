@@ -76,6 +76,10 @@ func formatParseError(detail ParseErrorDetail) string {
 
 // LoadSchemaFromStringRaw loads schema and returns raw error (no formatting)
 func (e *Engine) LoadSchemaFromStringRaw(input string) (*Schema, string, error) {
+	if !e.allowSchemaOverride {
+		return nil, "", fmt.Errorf("schema override is blocked: schema source is managed by vault")
+	}
+
 	// 1. Validate schema (handles BOTH parse errors and type check errors)
 	rawErr, err := ffi.ValidateSchemaRaw(input)
 	if err != nil {

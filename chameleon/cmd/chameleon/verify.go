@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/chameleon-db/chameleondb/chameleon/internal/config"
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/vault"
 	"github.com/spf13/cobra"
 )
@@ -75,7 +77,17 @@ func runVerify(cmd *cobra.Command, args []string) {
 
 	// Verify schema files
 	fmt.Println("Schema Files:")
-	schemaPath := ".chameleon/state/schema.merged.cham"
+	workDir, err := os.Getwd()
+	if err != nil {
+		fmt.Printf("❌ Failed to get working directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	schemaPath := filepath.Join(workDir, ".chameleon", "state", "schema.merged.cham")
+	loader := config.NewLoader(workDir)
+	if cfg, loadErr := loader.Load(); loadErr == nil && cfg.Schema.MergedOutput != "" {
+		schemaPath = cfg.Schema.MergedOutput
+	}
 
 	if _, err := os.Stat(schemaPath); err != nil {
 		fmt.Println("  ⚠️  schema *.cham not found")

@@ -76,7 +76,7 @@ If no name is provided, initializes in current directory.`,
 		// Set paths relative to workDir if it's a new project
 		if len(args) > 0 {
 			cfg.Schema.Paths = []string{"./schemas"}
-			cfg.Schema.MergedOutput = ".chameleon/state/schema.merged.json"
+			cfg.Schema.MergedOutput = ".chameleon/state/schema.merged.cham"
 		}
 
 		loader := factory.CreateConfigLoader()

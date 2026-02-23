@@ -28,9 +28,9 @@ Examples:
 		entity := args[0]
 
 		// Setup engine.
-		eng := engine.NewEngine()
-		if _, err := eng.LoadSchemaFromFile("schema.cham"); err != nil {
-			return fmt.Errorf("failed to load schema: %w", err)
+		eng, err := engine.NewEngine()
+		if err != nil {
+			return fmt.Errorf("failed to initialize engine: %w", err)
 		}
 
 		// Set debug level.

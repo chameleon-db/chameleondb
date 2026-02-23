@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"os"
 	"testing"
 )
 
@@ -33,7 +34,7 @@ func TestEngineDeleteWithoutSchemaReturnsError(t *testing.T) {
 }
 
 func TestEngineLoadSchema(t *testing.T) {
-	engine := NewEngine()
+	engine := NewEngineForCLI()
 
 	schemaSource := `
 		entity User {
@@ -83,10 +84,14 @@ func TestEngineLoadSchema(t *testing.T) {
 }
 
 func TestEngineLoadSchemaFromFile(t *testing.T) {
-	engine := NewEngine()
+	engine := NewEngineForCLI()
+	content, readErr := os.ReadFile("../../../examples/basic_schema.cham")
+	if readErr != nil {
+		t.Fatalf("Failed to read schema from file: %v", readErr)
+	}
 
 	// Load from example file
-	schema, err := engine.LoadSchemaFromFile("../../../examples/basic_schema.cham")
+	schema, err := engine.LoadSchemaFromString(string(content))
 	if err != nil {
 		t.Fatalf("Failed to load schema from file: %v", err)
 	}
@@ -99,7 +104,7 @@ func TestEngineLoadSchemaFromFile(t *testing.T) {
 }
 
 func TestEngineVersion(t *testing.T) {
-	engine := NewEngine()
+	engine := NewEngineForCLI()
 	version := engine.Version()
 
 	if version == "" {
@@ -110,7 +115,7 @@ func TestEngineVersion(t *testing.T) {
 }
 
 func TestInvalidSchema(t *testing.T) {
-	engine := NewEngine()
+	engine := NewEngineForCLI()
 
 	_, err := engine.LoadSchemaFromString("invalid syntax!!!")
 	if err == nil {

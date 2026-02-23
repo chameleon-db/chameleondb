@@ -32,10 +32,12 @@ var configSetCmd = &cobra.Command{
 
 Currently supported:
   mode=readonly|standard|privileged|emergency
+  schema-paths=path1,path2,...  (requires privileged mode)
 
 Examples:
   chameleon config set mode=standard
-  chameleon config set mode=emergency`,
+  chameleon config set schema-paths=schemas/
+  chameleon config set schema-paths=schemas/,legacy/schemas/`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		workDir, err := os.Getwd()
@@ -139,8 +141,182 @@ Examples:
 
 			printSuccess("Paranoid Mode updated: %s", mode)
 			return nil
+
+		case "schema-paths":
+			v := vault.NewVault(workDir)
+			if !v.Exists() {
+				if journalLogger != nil {
+					_ = journalLogger.Log("config_schema_paths", "failed", map[string]interface{}{
+						"reason": "vault_not_initialized",
+						"error":  "vault not initialized",
+					}, nil)
+				}
+				return fmt.Errorf("vault not initialized. Run 'chameleon migrate' first")
+			}
+
+			// Check current mode
+			currentMode, err := v.GetParanoidMode()
+			if err != nil {
+				if journalLogger != nil {
+					_ = journalLogger.LogError("config_schema_paths", err, map[string]interface{}{
+						"action": "read_paranoid_mode",
+					})
+				}
+				return err
+			}
+
+			// Log attempt to change schema paths
+			if journalLogger != nil {
+				_ = journalLogger.Log("config_schema_paths", "attempt", map[string]interface{}{
+					"current_mode":    currentMode,
+					"requested_paths": value,
+				}, nil)
+			}
+
+			// Require privileged or emergency mode
+			if currentMode != "privileged" && currentMode != "emergency" {
+				if journalLogger != nil {
+					_ = journalLogger.Log("config_schema_paths", "denied", map[string]interface{}{
+						"reason":       "insufficient_privileges",
+						"current_mode": currentMode,
+						"required":     "privileged or emergency",
+					}, nil)
+				}
+
+				printError("Permission denied: schema path changes require elevated privileges")
+				return fmt.Errorf(
+					"Changing schema paths requires privileged or emergency mode.\n"+
+						"Current mode: %s\n"+
+						"Upgrade with: chameleon config set mode=privileged",
+					currentMode,
+				)
+			}
+
+			// Verify path exists and is not a symlink
+			pathsToCheck := strings.Split(value, ",")
+			for _, p := range pathsToCheck {
+				p = strings.TrimSpace(p)
+				if _, err := os.Stat(p); err != nil {
+					if journalLogger != nil {
+						_ = journalLogger.Log("config_schema_paths", "failed", map[string]interface{}{
+							"reason":       "path_not_found",
+							"path":         p,
+							"current_mode": currentMode,
+						}, nil)
+					}
+					return fmt.Errorf("path not found: %s", p)
+				}
+
+				// Check for symlink (security risk)
+				info, _ := os.Lstat(p)
+				if info != nil && (info.Mode()&os.ModeSymlink) != 0 {
+					if journalLogger != nil {
+						_ = journalLogger.Log("config_schema_paths", "failed", map[string]interface{}{
+							"reason":       "symlink_not_allowed",
+							"path":         p,
+							"current_mode": currentMode,
+						}, nil)
+					}
+					return fmt.Errorf("symlinks are not allowed for schema paths (security risk): %s", p)
+				}
+			}
+
+			// Extra confirmation for emergency mode (ultra-dangerous)
+			if currentMode == "emergency" {
+				printWarning("🚨 EMERGENCY MODE: This is extremely dangerous!")
+				printWarning("You are about to change schema source paths in emergency mode.")
+				printWarning("This can permanently break your database integrity.")
+				fmt.Println()
+				fmt.Print("Type 'I understand the risks' to continue: ")
+
+				var emergencyConfirm string
+				fmt.Scanln(&emergencyConfirm)
+
+				if emergencyConfirm != "I understand the risks" {
+					if journalLogger != nil {
+						_ = journalLogger.Log("config_schema_paths", "cancelled", map[string]interface{}{
+							"reason":       "emergency_confirmation_not_given",
+							"current_mode": currentMode,
+						}, nil)
+					}
+					printInfo("Cancelled: emergency confirmation not given")
+					return nil
+				}
+			}
+
+			// Warn user
+			printWarning("⚠️  Changing schema source paths!")
+			printInfo("This is a CRITICAL security change")
+			printInfo("New paths: %s", value)
+			fmt.Println()
+			fmt.Print("Continue? [y/N]: ")
+
+			var response string
+			fmt.Scanln(&response)
+
+			if response != "y" && response != "Y" {
+				if journalLogger != nil {
+					_ = journalLogger.Log("config_schema_paths", "cancelled", map[string]interface{}{
+						"reason":       "user_confirmation_declined",
+						"current_mode": currentMode,
+					}, nil)
+				}
+				printInfo("Cancelled")
+				return nil
+			}
+
+			// Load and update .chameleon.yml
+			configLoader := factory.CreateConfigLoader()
+			cfg, err := configLoader.Load()
+			if err != nil {
+				if journalLogger != nil {
+					_ = journalLogger.LogError("config_schema_paths", err, map[string]interface{}{
+						"action":       "load_config",
+						"current_mode": currentMode,
+					})
+				}
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			// Update schema paths in config
+			newPaths := []string{}
+			for _, p := range pathsToCheck {
+				newPaths = append(newPaths, strings.TrimSpace(p))
+			}
+			cfg.Schema.Paths = newPaths
+
+			// Save config
+			if err := configLoader.Save(cfg); err != nil {
+				if journalLogger != nil {
+					_ = journalLogger.LogError("config_schema_paths", err, map[string]interface{}{
+						"action":       "save_config",
+						"current_mode": currentMode,
+					})
+				}
+				return fmt.Errorf("failed to save config: %w", err)
+			}
+
+			// Log successful schema path change (CRITICAL event to both journal and vault)
+			if journalLogger != nil {
+				_ = journalLogger.Log("config_schema_paths", "changed", map[string]interface{}{
+					"new_paths": value,
+					"mode":      currentMode,
+				}, nil)
+			}
+
+			_ = v.AppendLog("SCHEMA_PATH", "", map[string]string{
+				"action":    "schema_paths_changed",
+				"new_paths": value,
+				"mode":      currentMode,
+			})
+
+			printSuccess("Schema paths updated: %s", value)
+			printWarning("This change is logged in integrity.log")
+			printInfo("Run 'chameleon migrate' to apply changes")
+
+			return nil
 		default:
-			return fmt.Errorf("unsupported key %q (supported: mode)", key)
+			return fmt.Errorf("unsupported key %q (supported: mode, schema-paths)", key)
 		}
 	},
 }
@@ -198,9 +374,11 @@ var configGetCmd = &cobra.Command{
 
 Currently supported:
   mode
+  schema-paths
 
 Examples:
-  chameleon config get mode`,
+  chameleon config get mode
+  chameleon config get schema-paths`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key := strings.ToLower(strings.TrimSpace(args[0]))
@@ -224,8 +402,24 @@ Examples:
 
 			fmt.Println(mode)
 			return nil
+
+		case "schema-paths":
+			workDir, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("failed to get working directory: %w", err)
+			}
+
+			factory := admin.NewManagerFactory(workDir)
+			configLoader := factory.CreateConfigLoader()
+			cfg, err := configLoader.Load()
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			fmt.Println(strings.Join(cfg.Schema.Paths, ","))
+			return nil
 		default:
-			return fmt.Errorf("unsupported key %q (supported: mode)", key)
+			return fmt.Errorf("unsupported key %q (supported: mode, schema-paths)", key)
 		}
 	},
 }
