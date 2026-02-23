@@ -13,8 +13,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  coverage:
-    name: Rust + Go Coverage
+  coverage-rust:
+    name: Rust Coverage
     runs-on: ubuntu-latest
 
     steps:
@@ -35,6 +35,24 @@ jobs:
         working-directory: chameleon-core
         run: cargo llvm-cov --workspace --lcov --output-path coverage-rust.lcov
 
+      - name: Upload Rust coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: chameleon-core/coverage-rust.lcov
+          flags: rust
+          name: rust-coverage
+
+  coverage-go-unit:
+    name: Go Unit Tests Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Build Rust shared library for Go tests
         working-directory: chameleon-core
         run: |
@@ -47,25 +65,83 @@ jobs:
         with:
           go-version: "1.22"
 
-      - name: Generate Go coverage
+      - name: Generate Go unit tests coverage (excluding integration)
         working-directory: chameleon
         env:
           CGO_ENABLED: "1"
           CGO_LDFLAGS: "-L${{ github.workspace }}/chameleon/lib -lchameleon"
           CGO_CFLAGS: "-I${{ github.workspace }}/chameleon-core/include"
           LD_LIBRARY_PATH: "${{ github.workspace }}/chameleon/lib"
-        run: go test ./... -covermode=atomic -coverprofile=coverage-go.out
+        run: |
+          go test $(go list ./... | grep -v '/tests/integration') \
+            -covermode=atomic \
+            -coverprofile=coverage-go-unit.out
 
-      - name: Upload Rust coverage to Codecov
+      - name: Upload Go unit coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: chameleon-core/coverage-rust.lcov
-          flags: rust
-          name: rust-coverage
+          files: chameleon/coverage-go-unit.out
+          flags: go,unit
+          name: go-unit-coverage
 
-      - name: Upload Go coverage to Codecov
+  coverage-go-integration:
+    name: Go Integration Tests Coverage
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chameleon_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Rust shared library for Go tests
+        working-directory: chameleon-core
+        run: |
+          cargo build
+          mkdir -p ../chameleon/lib
+          cp target/debug/libchameleon.so ../chameleon/lib/
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Generate Go integration tests coverage
+        working-directory: chameleon
+        env:
+          CGO_ENABLED: "1"
+          CGO_LDFLAGS: "-L${{ github.workspace }}/chameleon/lib -lchameleon"
+          CGO_CFLAGS: "-I${{ github.workspace }}/chameleon-core/include"
+          LD_LIBRARY_PATH: "${{ github.workspace }}/chameleon/lib"
+          CHAMELEON_TEST_DB_HOST: localhost
+          CHAMELEON_TEST_DB_PORT: 5432
+          CHAMELEON_TEST_DB_NAME: chameleon_test
+          CHAMELEON_TEST_DB_USER: postgres
+          CHAMELEON_TEST_DB_PASS: postgres
+        run: |
+          go test ./tests/integration/... \
+            -covermode=atomic \
+            -coverprofile=coverage-go-integration.out
+
+      - name: Upload Go integration coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: chameleon/coverage-go.out
-          flags: go
-          name: go-coverage
+          files: chameleon/coverage-go-integration.out
+          flags: go,integration
+          name: go-integration-coverage
