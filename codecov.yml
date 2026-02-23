@@ -1,0 +1,22 @@
+coverage:
+  status:
+    project:
+      default:
+        target: 75%
+        threshold: 2%
+    patch:
+      default:
+        target: 75%
+
+flags:
+  rust:
+    paths:
+      - chameleon-core
+
+  go-unit:
+    paths:
+      - chameleon
+
+  go-integration:
+    paths:
+      - chameleon/tests/integration

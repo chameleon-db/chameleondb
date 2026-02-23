@@ -91,7 +91,7 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: chameleon/coverage-go-unit.out
-          flags: go,unit
+          flags: go-unit
           name: go-unit-coverage
           fail_ci_if_error: false
 
@@ -156,6 +156,6 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: chameleon/coverage-go-integration.out
-          flags: go,integration
+          flags: go-integration
           name: go-integration-coverage
           fail_ci_if_error: false
