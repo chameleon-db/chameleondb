@@ -1,0 +1,71 @@
+name: Coverage
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  coverage:
+    name: Rust + Go Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Generate Rust coverage (lcov)
+        working-directory: chameleon-core
+        run: cargo llvm-cov --workspace --lcov --output-path coverage-rust.lcov
+
+      - name: Build Rust shared library for Go tests
+        working-directory: chameleon-core
+        run: |
+          cargo build
+          mkdir -p ../chameleon/lib
+          cp target/debug/libchameleon.so ../chameleon/lib/
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Generate Go coverage
+        working-directory: chameleon
+        env:
+          CGO_ENABLED: "1"
+          CGO_LDFLAGS: "-L${{ github.workspace }}/chameleon/lib -lchameleon"
+          CGO_CFLAGS: "-I${{ github.workspace }}/chameleon-core/include"
+          LD_LIBRARY_PATH: "${{ github.workspace }}/chameleon/lib"
+        run: go test ./... -covermode=atomic -coverprofile=coverage-go.out
+
+      - name: Upload Rust coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: chameleon-core/coverage-rust.lcov
+          flags: rust
+          name: rust-coverage
+
+      - name: Upload Go coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: chameleon/coverage-go.out
+          flags: go
+          name: go-coverage
