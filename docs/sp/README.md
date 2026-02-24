@@ -15,6 +15,11 @@ manteniendo fidelidad técnica al contenido original.
 - [Raw to SQL](raw_to_sql_sp.md)
 - [Introspección](introspect_sp.md)
 - [Modelo de seguridad](SECURITY_sp.md)
+- [Uso de mutations (CRUD)](mutations_uses.md)
+
+## Inglés
+
+- [Documentation index (English)](../en/README.md)
 
 ## Nota
 

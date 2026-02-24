@@ -10,7 +10,7 @@
 [![Status](https://img.shields.io/badge/status-v1.0--alpha-green)](https://github.com/chameleon-db/chameleondb)
 [![codecov](https://codecov.io/github/chameleon-db/chameleondb/branch/main/graph/badge.svg)](https://codecov.io/github/chameleon-db/chameleondb)
 
-[ 🇺🇸 Documentation](https://chameleondb.dev/docs) • [🇪🇸 Spanish documentation](docs/sp/README.md) • [Examples](https://github.com/chameleon-db/chameleon-examples) • [Discord](https://chameleondb.dev/discord)
+[ 🇺🇸 Documentation](docs/en/README.md) • [🇪🇸 Spanish documentation](docs/sp/README.md) • [Examples](https://github.com/chameleon-db/chameleon-examples) • [Discord](https://chameleondb.dev/discord)
 
 </div>
 
