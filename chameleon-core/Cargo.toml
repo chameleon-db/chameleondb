@@ -1,6 +1,6 @@
 [package]
 name = "chameleon"
-version = "0.2.7-alfa"
+version = "0.1-alfa"
 edition = "2021"
 
 [lib]
