@@ -10,12 +10,14 @@ manteniendo fidelidad técnica al contenido original.
 
 - [¿Qué es ChameleonDB?](what_is_chameleondb_sp.md)
 - [Arquitectura](arquitectura.md)
+- [Contrato API v1 (OpenAPI, EN)](../en/api-v1-openapi.yaml)
 - [Guía rápida](quick_start_sp.md)
 - [Referencia de consultas](query_reference_sp.md)
 - [Raw to SQL](raw_to_sql_sp.md)
 - [Introspección](introspect_sp.md)
 - [Modelo de seguridad](SECURITY_sp.md)
 - [Uso de mutations (CRUD)](mutations_uses.md)
+- [Diagrama API v1 Multi-tenant](../diagrams/api_v1_multi_tenant_architecture.mmd)
 
 ## Inglés
 

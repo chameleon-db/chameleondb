@@ -1,0 +1,34 @@
+flowchart LR
+    Client[Web App / Playground UI] --> Gateway[API Gateway]
+    Gateway --> Auth[Auth + Tenant Resolver]
+    Auth --> RateLimit[Rate Limit / Quotas]
+
+    RateLimit --> Router{Mode}
+
+    Router -->|preview| CompileSvc[Chameleon Compiler API]
+    Router -->|execute| ExecSvc[Execution API]
+
+    subgraph Core[Chameleon Core Service]
+        CompileSvc --> SchemaStore[(Schema Snapshot Store)]
+        CompileSvc --> FFI[Go Runtime + Rust FFI]
+        FFI --> SQLGen[SQL Generator]
+        FFI --> Typecheck[Parser + Type Checker]
+    end
+
+    ExecSvc --> EnvStore[(Environment + Secrets)]
+    ExecSvc --> FFI
+    ExecSvc --> Connector[(PostgreSQL Connector)]
+
+    CompileSvc --> QueryRuns[(Query Runs / Audit Log)]
+    ExecSvc --> QueryRuns
+
+    CompileSvc --> Obs[Metrics + Tracing]
+    ExecSvc --> Obs
+
+    classDef safe fill:#EAF8F0,stroke:#2A8F5B,stroke-width:1px;
+    classDef runtime fill:#EEF3FF,stroke:#3B5BDB,stroke-width:1px;
+    classDef storage fill:#FFF4E6,stroke:#E67700,stroke-width:1px;
+
+    class CompileSvc,Typecheck,SQLGen safe;
+    class ExecSvc,FFI,Gateway,Auth,RateLimit,Router runtime;
+    class SchemaStore,EnvStore,Connector,QueryRuns,Obs storage;

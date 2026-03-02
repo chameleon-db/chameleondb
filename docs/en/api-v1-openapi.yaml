@@ -1,0 +1,501 @@
+openapi: 3.1.0
+info:
+  title: ChameleonDB API v1
+  version: 1.0.0
+  summary: Multi-tenant API for query preview (playground) and execution.
+  description: |
+    ChameleonDB HTTP API for server usage.
+
+    - `preview` mode compiles and validates query input without connecting to a real database.
+    - `execute` mode compiles and runs against a configured environment.
+
+    Tenancy model:
+    - Workspace -> Project -> Environment -> Session -> QueryRun
+servers:
+  - url: https://api.chameleondb.dev
+    description: Production
+  - url: http://localhost:8080
+    description: Local development
+tags:
+  - name: Playground
+  - name: Query Runs
+  - name: Execution
+security:
+  - bearerAuth: []
+paths:
+  /v1/playground/schema/validate:
+    post:
+      tags: [Playground]
+      operationId: validatePlaygroundSchema
+      summary: Validate schema source for a playground session
+      description: Validates `.cham` schema and returns typed diagnostics.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaygroundSchemaValidateRequest'
+      responses:
+        '200':
+          description: Schema parsed/validated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaValidateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /v1/playground/query/compile:
+    post:
+      tags: [Playground]
+      operationId: compilePlaygroundQuery
+      summary: Compile query to SQL in preview mode
+      description: |
+        Compiles query input using provided schema snapshot.
+        Never opens a real DB connection in playground mode.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaygroundQueryCompileRequest'
+      responses:
+        '200':
+          description: Query compiled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryCompileResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /v1/projects/{projectId}/query/execute:
+    post:
+      tags: [Execution]
+      operationId: executeProjectQuery
+      summary: Compile and execute query for a project environment
+      description: |
+        Executes in `execute` mode against a configured environment.
+        Returns generated SQL for transparency and the execution result metadata.
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteQueryRequest'
+      responses:
+        '200':
+          description: Query executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecuteQueryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /v1/query-runs/{runId}:
+    get:
+      tags: [Query Runs]
+      operationId: getQueryRun
+      summary: Get query run details for audit/debug
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+      responses:
+        '200':
+          description: Query run found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryRunResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Project identifier within a workspace
+    RunId:
+      name: runId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Query run identifier
+
+  responses:
+    BadRequest:
+      description: Invalid request payload or validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Missing or invalid auth token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Tenant or project access denied
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: Tenant quota or rate limit reached
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    TenantContext:
+      type: object
+      additionalProperties: false
+      required: [workspaceId]
+      properties:
+        workspaceId:
+          type: string
+        projectId:
+          type: string
+        sessionId:
+          type: string
+        userId:
+          type: string
+
+    ResourceLimits:
+      type: object
+      additionalProperties: false
+      properties:
+        maxSchemaBytes:
+          type: integer
+          minimum: 1
+          default: 262144
+        maxIncludesDepth:
+          type: integer
+          minimum: 1
+          default: 4
+        maxSelectedFields:
+          type: integer
+          minimum: 1
+          default: 100
+        timeoutMs:
+          type: integer
+          minimum: 50
+          default: 3000
+
+    PlaygroundSchemaValidateRequest:
+      type: object
+      additionalProperties: false
+      required: [tenant, schemaSource]
+      properties:
+        tenant:
+          $ref: '#/components/schemas/TenantContext'
+        schemaSource:
+          type: string
+          description: Raw `.cham` source
+        limits:
+          $ref: '#/components/schemas/ResourceLimits'
+
+    PlaygroundQueryCompileRequest:
+      type: object
+      additionalProperties: false
+      required: [tenant, schemaSource, query]
+      properties:
+        tenant:
+          $ref: '#/components/schemas/TenantContext'
+        schemaSource:
+          type: string
+        query:
+          $ref: '#/components/schemas/QueryInput'
+        options:
+          $ref: '#/components/schemas/CompileOptions'
+        limits:
+          $ref: '#/components/schemas/ResourceLimits'
+
+    ExecuteQueryRequest:
+      type: object
+      additionalProperties: false
+      required: [environmentId, query]
+      properties:
+        environmentId:
+          type: string
+          description: Target environment with stored DB credentials
+        query:
+          $ref: '#/components/schemas/QueryInput'
+        options:
+          $ref: '#/components/schemas/CompileOptions'
+
+    QueryInput:
+      type: object
+      additionalProperties: false
+      required: [entity]
+      properties:
+        entity:
+          type: string
+          example: User
+        select:
+          type: array
+          items:
+            type: string
+          example: [id, name, email]
+        filters:
+          type: array
+          items:
+            $ref: '#/components/schemas/Filter'
+        include:
+          type: array
+          items:
+            $ref: '#/components/schemas/Include'
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        offset:
+          type: integer
+          minimum: 0
+        orderBy:
+          type: string
+          example: created_at DESC
+
+    Filter:
+      type: object
+      additionalProperties: false
+      required: [field, op, value]
+      properties:
+        field:
+          type: string
+        op:
+          type: string
+          enum: [eq, ne, gt, gte, lt, lte, in, like]
+        value:
+          nullable: true
+
+    Include:
+      type: object
+      additionalProperties: false
+      required: [relation]
+      properties:
+        relation:
+          type: string
+        select:
+          type: array
+          items:
+            type: string
+        include:
+          type: array
+          items:
+            $ref: '#/components/schemas/Include'
+
+    CompileOptions:
+      type: object
+      additionalProperties: false
+      properties:
+        mode:
+          type: string
+          enum: [preview, execute]
+          default: preview
+        dialect:
+          type: string
+          enum: [postgres]
+          default: postgres
+        includeParams:
+          type: boolean
+          default: true
+        includeDebugPlan:
+          type: boolean
+          default: false
+
+    Diagnostic:
+      type: object
+      additionalProperties: false
+      required: [level, code, message]
+      properties:
+        level:
+          type: string
+          enum: [error, warning, info]
+        code:
+          type: string
+          example: SCHEMA_FIELD_NOT_FOUND
+        message:
+          type: string
+        line:
+          type: integer
+          minimum: 1
+        column:
+          type: integer
+          minimum: 1
+        suggestion:
+          type: string
+
+    SchemaValidateResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, diagnostics, schemaHash]
+      properties:
+        ok:
+          type: boolean
+        diagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/Diagnostic'
+        schemaHash:
+          type: string
+          description: Stable schema fingerprint used for cache/snapshots
+
+    QueryCompileResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, sql, params, diagnostics, metadata]
+      properties:
+        ok:
+          type: boolean
+        sql:
+          type: string
+        params:
+          type: array
+          items: {}
+        diagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/Diagnostic'
+        metadata:
+          $ref: '#/components/schemas/QueryMetadata'
+
+    ExecuteQueryResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, runId, sql, params, diagnostics, execution]
+      properties:
+        ok:
+          type: boolean
+        runId:
+          type: string
+        sql:
+          type: string
+        params:
+          type: array
+          items: {}
+        diagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/Diagnostic'
+        execution:
+          $ref: '#/components/schemas/ExecutionMetadata'
+
+    QueryMetadata:
+      type: object
+      additionalProperties: false
+      required: [requestId, compiledAt, compileLatencyMs]
+      properties:
+        requestId:
+          type: string
+        compiledAt:
+          type: string
+          format: date-time
+        compileLatencyMs:
+          type: integer
+          minimum: 0
+        mode:
+          type: string
+          enum: [preview, execute]
+
+    ExecutionMetadata:
+      type: object
+      additionalProperties: false
+      required: [environmentId, durationMs, rowCount]
+      properties:
+        environmentId:
+          type: string
+        durationMs:
+          type: integer
+          minimum: 0
+        rowCount:
+          type: integer
+          minimum: 0
+
+    QueryRunResponse:
+      type: object
+      additionalProperties: false
+      required: [runId, projectId, mode, status, sql, diagnostics, createdAt]
+      properties:
+        runId:
+          type: string
+        projectId:
+          type: string
+        mode:
+          type: string
+          enum: [preview, execute]
+        status:
+          type: string
+          enum: [succeeded, failed, timed_out, canceled]
+        sql:
+          type: string
+        params:
+          type: array
+          items: {}
+        diagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/Diagnostic'
+        createdAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              example: RATE_LIMIT_EXCEEDED
+            message:
+              type: string
+            requestId:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
