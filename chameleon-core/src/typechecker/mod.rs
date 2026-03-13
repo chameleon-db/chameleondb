@@ -90,6 +90,7 @@ pub fn type_check(schema: &Schema) -> TypeCheckResult {
     // Constraints
     errors.extend(constraints::check_primary_keys(schema));
     errors.extend(constraints::check_annotations(schema));
+    errors.extend(constraints::check_defaults(schema));
 
     TypeCheckResult { errors }
 }
@@ -259,6 +260,111 @@ mod tests {
         let result = type_check(&schema);
         assert!(!result.is_valid());
         assert!(result.errors.iter().any(|e| matches!(e, TypeCheckError::MultiplePrimaryKeys { .. })));
+    }
+
+    #[test]
+    fn test_valid_default_values() {
+        let mut schema = Schema::new();
+        let mut entity = Entity::new("User".to_string());
+
+        entity.add_field(Field {
+            name: "id".to_string(),
+            field_type: FieldType::UUID,
+            nullable: false,
+            unique: false,
+            primary_key: true,
+            default: Some(DefaultValue::UUIDv4),
+            backend: None,
+        });
+
+        entity.add_field(Field {
+            name: "verified".to_string(),
+            field_type: FieldType::Bool,
+            nullable: false,
+            unique: false,
+            primary_key: false,
+            default: Some(DefaultValue::BoolLiteral(false)),
+            backend: None,
+        });
+
+        entity.add_field(Field {
+            name: "created_at".to_string(),
+            field_type: FieldType::Timestamp,
+            nullable: false,
+            unique: false,
+            primary_key: false,
+            default: Some(DefaultValue::Now),
+            backend: None,
+        });
+
+        schema.add_entity(entity);
+
+        let result = type_check(&schema);
+        assert!(result.is_valid(), "{}", result.error_report());
+    }
+
+    #[test]
+    fn test_invalid_default_value_type_mismatch() {
+        let mut schema = Schema::new();
+        let mut entity = Entity::new("User".to_string());
+
+        entity.add_field(Field {
+            name: "id".to_string(),
+            field_type: FieldType::UUID,
+            nullable: false,
+            unique: false,
+            primary_key: true,
+            default: None,
+            backend: None,
+        });
+
+        entity.add_field(Field {
+            name: "verified".to_string(),
+            field_type: FieldType::Bool,
+            nullable: false,
+            unique: false,
+            primary_key: false,
+            default: Some(DefaultValue::StringLiteral("yes".to_string())),
+            backend: None,
+        });
+
+        schema.add_entity(entity);
+
+        let result = type_check(&schema);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| matches!(e, TypeCheckError::InvalidDefaultValue { .. })));
+    }
+
+    #[test]
+    fn test_invalid_default_function_for_field_type() {
+        let mut schema = Schema::new();
+        let mut entity = Entity::new("User".to_string());
+
+        entity.add_field(Field {
+            name: "id".to_string(),
+            field_type: FieldType::UUID,
+            nullable: false,
+            unique: false,
+            primary_key: true,
+            default: None,
+            backend: None,
+        });
+
+        entity.add_field(Field {
+            name: "is_active".to_string(),
+            field_type: FieldType::Bool,
+            nullable: false,
+            unique: false,
+            primary_key: false,
+            default: Some(DefaultValue::Now),
+            backend: None,
+        });
+
+        schema.add_entity(entity);
+
+        let result = type_check(&schema);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| matches!(e, TypeCheckError::UnsupportedDefaultFunction { .. })));
     }
 
     // ─── ANNOTATION ERRORS ───

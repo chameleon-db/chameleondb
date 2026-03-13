@@ -20,7 +20,10 @@ pub fn to_postgres_default(default: &DefaultValue) -> String {
     match default {
         DefaultValue::Now      => "NOW()".to_string(),
         DefaultValue::UUIDv4   => "gen_random_uuid()".to_string(),
-        DefaultValue::Literal(s) => format!("'{}'", s),
+        DefaultValue::StringLiteral(s) => format!("'{}'", s.replace('\'', "''")),
+        DefaultValue::BoolLiteral(v) => v.to_string(),
+        DefaultValue::IntLiteral(v) => v.to_string(),
+        DefaultValue::FloatLiteral(v) => v.to_string(),
     }
 }
 
@@ -62,6 +65,9 @@ mod tests {
     fn test_defaults() {
         assert_eq!(to_postgres_default(&DefaultValue::Now), "NOW()");
         assert_eq!(to_postgres_default(&DefaultValue::UUIDv4), "gen_random_uuid()");
-        assert_eq!(to_postgres_default(&DefaultValue::Literal("hello".to_string())), "'hello'");
+        assert_eq!(to_postgres_default(&DefaultValue::StringLiteral("hello".to_string())), "'hello'");
+        assert_eq!(to_postgres_default(&DefaultValue::BoolLiteral(true)), "true");
+        assert_eq!(to_postgres_default(&DefaultValue::IntLiteral(42)), "42");
+        assert_eq!(to_postgres_default(&DefaultValue::FloatLiteral(3.5)), "3.5");
     }
 }

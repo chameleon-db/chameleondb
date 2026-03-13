@@ -170,7 +170,7 @@ fn add_suggestions(mut detail: ParseErrorDetail) -> ParseErrorDetail {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{BackendAnnotation, FieldType};
+    use crate::ast::{BackendAnnotation, DefaultValue, FieldType};
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -260,6 +260,52 @@ fn test_vector_type() {
     let embedding = product.fields.get("embedding").unwrap();
     assert_eq!(embedding.field_type, FieldType::Vector(1536));
     assert_eq!(embedding.backend, Some(BackendAnnotation::Vector));
+}
+
+#[test]
+fn test_typed_defaults() {
+    let input = r#"
+        entity User {
+            id: uuid primary default uuid_v4(),
+            active: bool default true,
+            retries: int default 3,
+            score: float default 4.2,
+            created_at: timestamp default now(),
+            nickname: string default "new-user",
+        }
+    "#;
+
+    let schema = parse_schema(input).unwrap();
+    let user = schema.get_entity("User").unwrap();
+
+    assert_eq!(user.fields.get("id").unwrap().default, Some(DefaultValue::UUIDv4));
+    assert_eq!(user.fields.get("active").unwrap().default, Some(DefaultValue::BoolLiteral(true)));
+    assert_eq!(user.fields.get("retries").unwrap().default, Some(DefaultValue::IntLiteral(3)));
+    assert_eq!(user.fields.get("score").unwrap().default, Some(DefaultValue::FloatLiteral(4.2)));
+    assert_eq!(user.fields.get("created_at").unwrap().default, Some(DefaultValue::Now));
+    assert_eq!(user.fields.get("nickname").unwrap().default, Some(DefaultValue::StringLiteral("new-user".to_string())));
+}
+
+#[test]
+fn test_prisma_style_default_parentheses() {
+    let input = r#"
+        entity FeatureFlag {
+            id: uuid primary default(uuid()),
+            enabled: bool default(true),
+            max_uses: int default(10),
+            title: string default("beta"),
+            created_at: timestamp default(now()),
+        }
+    "#;
+
+    let schema = parse_schema(input).unwrap();
+    let flag = schema.get_entity("FeatureFlag").unwrap();
+
+    assert_eq!(flag.fields.get("id").unwrap().default, Some(DefaultValue::UUIDv4));
+    assert_eq!(flag.fields.get("enabled").unwrap().default, Some(DefaultValue::BoolLiteral(true)));
+    assert_eq!(flag.fields.get("max_uses").unwrap().default, Some(DefaultValue::IntLiteral(10)));
+    assert_eq!(flag.fields.get("title").unwrap().default, Some(DefaultValue::StringLiteral("beta".to_string())));
+    assert_eq!(flag.fields.get("created_at").unwrap().default, Some(DefaultValue::Now));
 }
 
 #[test]

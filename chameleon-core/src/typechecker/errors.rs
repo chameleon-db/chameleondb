@@ -72,6 +72,22 @@ pub enum TypeCheckError {
     DuplicateField {
         entity: String,
         field: String,
+    },
+
+    #[error("Field '{field}' in '{entity}' has invalid default '{default}' for type '{field_type}'")]
+    InvalidDefaultValue {
+        entity: String,
+        field: String,
+        field_type: String,
+        default: String,
+    },
+
+    #[error("Field '{field}' in '{entity}' uses unsupported default function '{function}' for type '{field_type}'")]
+    UnsupportedDefaultFunction {
+        entity: String,
+        field: String,
+        field_type: String,
+        function: String,
     }
 
 }

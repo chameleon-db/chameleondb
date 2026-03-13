@@ -41,7 +41,10 @@ pub enum FieldType {
 pub enum DefaultValue {
     Now,
     UUIDv4,
-    Literal(String),
+    StringLiteral(String),
+    BoolLiteral(bool),
+    IntLiteral(i64),
+    FloatLiteral(f64),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

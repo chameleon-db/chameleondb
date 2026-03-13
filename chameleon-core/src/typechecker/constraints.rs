@@ -1,4 +1,4 @@
-use crate::ast::{Schema, FieldType, BackendAnnotation};
+use crate::ast::{Schema, FieldType, BackendAnnotation, DefaultValue};
 use super::errors::TypeCheckError;
 
 /// Validates primary key constraints
@@ -63,6 +63,51 @@ pub fn check_annotations(schema: &Schema) -> Vec<TypeCheckError> {
                         annotation: format!("{:?}", annotation).to_lowercase(),
                     });
                 }
+            }
+        }
+    }
+
+    errors
+}
+
+/// Validates default value compatibility with field types.
+pub fn check_defaults(schema: &Schema) -> Vec<TypeCheckError> {
+    let mut errors = Vec::new();
+
+    for entity in &schema.entities {
+        for (_, field) in &entity.fields {
+            let Some(default) = &field.default else {
+                continue;
+            };
+
+            match (&field.field_type, default) {
+                (FieldType::Timestamp, DefaultValue::Now) => {}
+                (FieldType::UUID, DefaultValue::UUIDv4) => {}
+                (FieldType::String, DefaultValue::StringLiteral(_)) => {}
+                (FieldType::Bool, DefaultValue::BoolLiteral(_)) => {}
+                (FieldType::Int, DefaultValue::IntLiteral(_)) => {}
+                (FieldType::Decimal, DefaultValue::FloatLiteral(_)) => {}
+                (FieldType::Decimal, DefaultValue::IntLiteral(_)) => {}
+                (FieldType::Float, DefaultValue::FloatLiteral(_)) => {}
+                (FieldType::Float, DefaultValue::IntLiteral(_)) => {}
+                (_, DefaultValue::Now) => errors.push(TypeCheckError::UnsupportedDefaultFunction {
+                    entity: entity.name.clone(),
+                    field: field.name.clone(),
+                    field_type: format!("{:?}", field.field_type),
+                    function: "now()".to_string(),
+                }),
+                (_, DefaultValue::UUIDv4) => errors.push(TypeCheckError::UnsupportedDefaultFunction {
+                    entity: entity.name.clone(),
+                    field: field.name.clone(),
+                    field_type: format!("{:?}", field.field_type),
+                    function: "uuid_v4()".to_string(),
+                }),
+                _ => errors.push(TypeCheckError::InvalidDefaultValue {
+                    entity: entity.name.clone(),
+                    field: field.name.clone(),
+                    field_type: format!("{:?}", field.field_type),
+                    default: format!("{:?}", default),
+                }),
             }
         }
     }
