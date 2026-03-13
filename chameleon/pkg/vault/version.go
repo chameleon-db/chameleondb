@@ -43,7 +43,8 @@ func (v *Vault) RegisterVersion(schemaPath string, author string, changesSummary
 	// Determine parent
 	var parent *string
 	if v.Manifest.CurrentVersion != "" {
-		parent = &v.Manifest.CurrentVersion
+		parentVersion := v.Manifest.CurrentVersion
+		parent = &parentVersion
 	}
 
 	// Read schema content
