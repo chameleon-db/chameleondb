@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -417,4 +418,66 @@ func TestAuthorizationError(t *testing.T) {
 	}
 
 	var _ MutationError = err
+}
+
+func TestEngineIsMutationErrorHelper(t *testing.T) {
+	mutErrors := []error{
+		&ValidationError{Field: "f"},
+		&TypeMismatchError{Field: "f"},
+		&LengthExceededError{Field: "f"},
+		&FieldFormatError{Field: "f"},
+		&ConstraintError{Type: "unique", Field: "f"},
+		&UniqueConstraintError{Field: "f", ConflictingRow: map[string]interface{}{"id": 1}},
+		&NotNullError{Field: "f"},
+		&ForeignKeyError{Field: "f"},
+		&ForeignKeyConstraintError{Entity: "E"},
+		&UnknownFieldError{Entity: "E", Field: "f"},
+		&UnknownEntityError{Entity: "E"},
+		&NotFoundError{Entity: "E"},
+		&ConflictError{Entity: "E"},
+		&SafetyError{Operation: "op"},
+		&AuthorizationError{Operation: "op"},
+	}
+	for _, me := range mutErrors {
+		if !IsMutationError(me) {
+			t.Errorf("expected IsMutationError=true for %T", me)
+		}
+		code := ErrorCode(me)
+		if code == "UNKNOWN_ERROR" {
+			t.Errorf("expected real code for %T, got UNKNOWN_ERROR", me)
+		}
+	}
+
+	plain := fmt.Errorf("plain error")
+	if IsMutationError(plain) {
+		t.Error("expected IsMutationError=false for plain error")
+	}
+	if ErrorCode(plain) != "UNKNOWN_ERROR" {
+		t.Error("expected UNKNOWN_ERROR for plain error")
+	}
+}
+
+func TestEngineIsSafetyAndConstraintHelpers(t *testing.T) {
+	safetyError := &SafetyError{Operation: "delete_all", Rows: 100, Threshold: 50}
+	if !IsSafetyError(safetyError) {
+		t.Error("expected IsSafetyError=true for SafetyError")
+	}
+	if IsSafetyError(&ValidationError{Field: "f"}) {
+		t.Error("expected IsSafetyError=false for ValidationError")
+	}
+
+	constraintErrors := []error{
+		&UniqueConstraintError{Field: "x", ConflictingRow: map[string]interface{}{"id": 1}},
+		&NotNullError{Field: "x"},
+		&ForeignKeyError{Field: "x"},
+		&ForeignKeyConstraintError{Entity: "X"},
+	}
+	for _, constraintError := range constraintErrors {
+		if !IsConstraintError(constraintError) {
+			t.Errorf("expected IsConstraintError=true for %T", constraintError)
+		}
+	}
+	if IsConstraintError(&ValidationError{Field: "f"}) {
+		t.Error("expected IsConstraintError=false for ValidationError")
+	}
 }

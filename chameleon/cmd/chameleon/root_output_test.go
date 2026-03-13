@@ -33,13 +33,6 @@ func captureStderr(t *testing.T, fn func()) string {
 }
 
 func TestRootPrintHelpers(t *testing.T) {
-	oldColorOut := color.Output
-	oldColorErr := color.Error
-	defer func() {
-		color.Output = oldColorOut
-		color.Error = oldColorErr
-	}()
-
 	outSuccess := captureStdout(t, func() { printSuccess("ok %s", "done") })
 	if !strings.Contains(outSuccess, "ok done") {
 		t.Fatalf("expected success output, got %q", outSuccess)
