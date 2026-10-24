@@ -79,6 +79,14 @@ test-all:
 	$(MAKE) docker-down
 
 docker-up:
+	@docker info >/dev/null 2>&1 || { \
+		echo "Docker no esta disponible para este usuario."; \
+		echo "En Fedora, inicia el daemon y vuelve a abrir la sesion despues de agregar el usuario al grupo docker:"; \
+		echo "  sudo systemctl enable --now docker"; \
+		echo "  sudo usermod -aG docker $$USER"; \
+		echo "  newgrp docker"; \
+		exit 1; \
+	}
 	docker compose -f docker-compose.test.yml up -d
 
 docker-down:
