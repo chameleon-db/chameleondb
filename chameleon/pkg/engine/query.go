@@ -60,15 +60,137 @@ type QueryJSON struct {
 	SelectFields []string        `json:"select_fields"`
 }
 
-// GeneratedSQL mirrors Rust's GeneratedSQL
+// GeneratedSQL mirrors Rust's GeneratedSQL.
+//
+// The SQL text only contains placeholders ($1, $2, ...). Values are carried
+// separately in MainParams and, for each eager query, in the matching entry
+// of EagerParams.
 type GeneratedSQL struct {
-	MainQuery    string     `json:"main_query"`
-	EagerQueries [][]string `json:"eager_queries"`
+	MainQuery    string       `json:"main_query"`
+	EagerQueries [][]string   `json:"eager_queries"`
+	MainParams   []SQLParam   `json:"main_params,omitempty"`
+	EagerParams  [][]SQLParam `json:"eager_params,omitempty"`
 }
 
 type EagerQuery struct {
-	Relation string `json:"0"`
-	SQL      string `json:"1"`
+	Relation string     `json:"0"`
+	SQL      string     `json:"1"`
+	Params   []SQLParam `json:"params,omitempty"`
+}
+
+// SQL parameter kinds produced by the generator.
+const (
+	ParamString    = "String"
+	ParamInt       = "Int"
+	ParamFloat     = "Float"
+	ParamBool      = "Bool"
+	ParamNull      = "Null"
+	ParamParentIDs = "ParentIds"
+)
+
+// SQLParam is a value bound to a placeholder of a generated statement.
+// ParentIds is resolved by the executor from the rows of the parent query.
+type SQLParam struct {
+	Kind  string
+	Value interface{} // string, int64, float64 or bool; nil for Null and ParentIds
+}
+
+// NewSQLParam converts a Go value into a parameter.
+func NewSQLParam(value interface{}) SQLParam {
+	switch v := value.(type) {
+	case nil:
+		return SQLParam{Kind: ParamNull}
+	case bool:
+		return SQLParam{Kind: ParamBool, Value: v}
+	case int:
+		return SQLParam{Kind: ParamInt, Value: int64(v)}
+	case int64:
+		return SQLParam{Kind: ParamInt, Value: v}
+	case float64:
+		return SQLParam{Kind: ParamFloat, Value: v}
+	case string:
+		return SQLParam{Kind: ParamString, Value: v}
+	default:
+		return SQLParam{Kind: ParamString, Value: fmt.Sprintf("%v", v)}
+	}
+}
+
+// UnmarshalJSON reads the externally tagged form used by the Rust core:
+// {"String":"x"}, {"Int":1}, {"Float":1.5}, {"Bool":true}, "Null", "ParentIds".
+func (p *SQLParam) UnmarshalJSON(data []byte) error {
+	var name string
+	if err := json.Unmarshal(data, &name); err == nil {
+		if name != ParamNull && name != ParamParentIDs {
+			return fmt.Errorf("unknown parameter kind %q", name)
+		}
+		*p = SQLParam{Kind: name}
+		return nil
+	}
+
+	var tagged map[string]json.RawMessage
+	if err := json.Unmarshal(data, &tagged); err != nil {
+		return fmt.Errorf("invalid parameter: %w", err)
+	}
+	if len(tagged) != 1 {
+		return fmt.Errorf("invalid parameter: expected a single kind")
+	}
+
+	for kind, raw := range tagged {
+		var target interface{}
+		switch kind {
+		case ParamString:
+			var v string
+			target = &v
+		case ParamInt:
+			var v int64
+			target = &v
+		case ParamFloat:
+			var v float64
+			target = &v
+		case ParamBool:
+			var v bool
+			target = &v
+		case ParamNull:
+			*p = SQLParam{Kind: ParamNull}
+			return nil
+		default:
+			return fmt.Errorf("unknown parameter kind %q", kind)
+		}
+		if err := json.Unmarshal(raw, target); err != nil {
+			return fmt.Errorf("invalid %s parameter: %w", kind, err)
+		}
+		switch v := target.(type) {
+		case *string:
+			*p = SQLParam{Kind: kind, Value: *v}
+		case *int64:
+			*p = SQLParam{Kind: kind, Value: *v}
+		case *float64:
+			*p = SQLParam{Kind: kind, Value: *v}
+		case *bool:
+			*p = SQLParam{Kind: kind, Value: *v}
+		}
+	}
+	return nil
+}
+
+// MarshalJSON writes the same form UnmarshalJSON reads.
+func (p SQLParam) MarshalJSON() ([]byte, error) {
+	if p.Kind == ParamNull || p.Kind == ParamParentIDs {
+		return json.Marshal(p.Kind)
+	}
+	return json.Marshal(map[string]interface{}{p.Kind: p.Value})
+}
+
+// String renders a parameter for display next to placeholder SQL.
+func (p SQLParam) String() string {
+	switch p.Kind {
+	case ParamString:
+		return fmt.Sprintf("String(%q)", p.Value)
+	case ParamInt, ParamFloat, ParamBool:
+		return fmt.Sprintf("%s(%v)", p.Kind, p.Value)
+	default:
+		return p.Kind
+	}
 }
 
 // --- Query Builder ---
@@ -193,6 +315,7 @@ func (qb *QueryBuilder) Execute(ctx context.Context) (*QueryResult, error) {
 
 	debugCtx := qb.getDebugContext()
 	debugCtx.LogSQL(generated.MainQuery)
+	debugCtx.LogParams(generated.MainParams)
 
 	result, err := qb.engine.executor.Execute(ctx, qb)
 	if err != nil {

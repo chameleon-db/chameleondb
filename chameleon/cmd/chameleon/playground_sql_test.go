@@ -83,7 +83,7 @@ func TestProcessPlaygroundSQL_Success(t *testing.T) {
 		t.Fatalf("expected main query to contain SELECT, got %q", response.MainQuery)
 	}
 
-	if !strings.Contains(response.MainQuery, "FROM users") {
+	if !strings.Contains(response.MainQuery, `FROM "users"`) {
 		t.Fatalf("expected main query to contain FROM users, got %q", response.MainQuery)
 	}
 }
@@ -156,8 +156,14 @@ func TestProcessPlaygroundSQL_MutationUpdate(t *testing.T) {
 	if !strings.Contains(response.MainQuery, "UPDATE users SET") {
 		t.Fatalf("expected UPDATE SQL, got %q", response.MainQuery)
 	}
-	if !strings.Contains(response.MainQuery, "WHERE email = 'ana@mail.com'") {
+	if !strings.Contains(response.MainQuery, "WHERE email = $2") {
 		t.Fatalf("expected WHERE clause, got %q", response.MainQuery)
+	}
+	if strings.Contains(response.MainQuery, "ana@mail.com") {
+		t.Fatalf("value must not appear in SQL text, got %q", response.MainQuery)
+	}
+	if len(response.MainParams) != 2 || response.MainParams[1] != engine.NewSQLParam("ana@mail.com") {
+		t.Fatalf("unexpected params: %#v", response.MainParams)
 	}
 }
 
@@ -271,5 +277,88 @@ func TestPlaygroundSQLHTTPHandler_CompileSuccess(t *testing.T) {
 
 	if !strings.Contains(response.MainQuery, "SELECT") {
 		t.Fatalf("expected main query to contain SELECT, got %q", response.MainQuery)
+	}
+}
+
+func TestProcessPlaygroundSQL_ValuesAreNotInSQLText(t *testing.T) {
+	values := []string{
+		"o'brien", "''", "x; y", "a -- b", "/* c */", `back\slash`,
+		"caf\u00e9 \u4e2d\u6587", "100%", "a_b", "line\nbreak",
+	}
+
+	for _, value := range values {
+		request := playgroundSQLRequest{
+			Schema: `
+				entity User {
+					id: uuid primary,
+					email: string,
+				}
+			`,
+			Mutation: &playgroundSQLMutation{
+				Type:    "update",
+				Entity:  "User",
+				Set:     map[string]interface{}{"email": value},
+				Filters: []playgroundSQLMutationFilter{{Field: "email", Op: "eq", Value: value}},
+			},
+		}
+		input, err := json.Marshal(request)
+		if err != nil {
+			t.Fatalf("failed to marshal request: %v", err)
+		}
+
+		response := processPlaygroundSQL(input)
+		if !response.OK {
+			t.Fatalf("expected successful response, got error: %+v", response.Error)
+		}
+		if strings.Contains(response.MainQuery, value) {
+			t.Errorf("value %q appears in SQL text %q", value, response.MainQuery)
+		}
+		if len(response.MainParams) != 2 || response.MainParams[0] != engine.NewSQLParam(value) {
+			t.Errorf("unexpected params for %q: %#v", value, response.MainParams)
+		}
+	}
+}
+
+func TestProcessPlaygroundSQL_QueryValuesAreNotInSQLText(t *testing.T) {
+	request := playgroundSQLRequest{
+		Schema: `
+			entity User {
+				id: uuid primary,
+				email: string,
+				orders: [Order] via user_id,
+			}
+			entity Order {
+				id: uuid primary,
+				user_id: uuid,
+			}
+		`,
+		Query: &engine.QueryJSON{
+			Entity: "User",
+			Filters: []engine.FilterExpr{{Condition: &engine.FilterCondition{
+				Field: engine.FieldPath{Segments: []string{"email"}},
+				Op:    "Eq",
+				Value: engine.FilterValue{"String": "o'brien; x"},
+			}}},
+			Includes: []engine.IncludePath{{Path: []string{"orders"}}},
+		},
+	}
+	input, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("failed to marshal request: %v", err)
+	}
+
+	response := processPlaygroundSQL(input)
+	if !response.OK {
+		t.Fatalf("expected successful response, got error: %+v", response.Error)
+	}
+	if strings.Contains(response.MainQuery, "brien") {
+		t.Errorf("value appears in SQL text %q", response.MainQuery)
+	}
+	if len(response.MainParams) != 1 || response.MainParams[0] != engine.NewSQLParam("o'brien; x") {
+		t.Errorf("unexpected params: %#v", response.MainParams)
+	}
+	if len(response.EagerQueries) != 1 || len(response.EagerQueries[0].Params) != 1 ||
+		response.EagerQueries[0].Params[0].Kind != engine.ParamParentIDs {
+		t.Errorf("unexpected eager queries: %#v", response.EagerQueries)
 	}
 }

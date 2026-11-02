@@ -1,6 +1,7 @@
 package mutation
 
 import (
+	"context"
 	"testing"
 
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
@@ -385,7 +386,10 @@ func TestInsertBuilder_GenerateSQL(t *testing.T) {
 	builder := NewInsertBuilder(schema, mockConnector(), "User")
 	builder.Set("email", "ana@mail.com").Set("name", "Ana")
 
-	sql, values := builder.generateSQL()
+	sql, values, err := builder.generateSQL()
+	if err != nil {
+		t.Fatalf("generateSQL should not fail: %v", err)
+	}
 
 	// Verify SQL structure
 	if sql == "" {
@@ -532,3 +536,126 @@ func hasSubstring(s, substr string) bool {
 // - Chaining behavior
 // - SQL generation (without execution)
 // - Interface compliance
+
+// ============================================================
+// IDENTIFIER VALIDATION AND QUOTING
+// ============================================================
+
+func newInsert(entity string, fields map[string]interface{}) *InsertBuilder {
+	b := NewInsertBuilder(testSchema(), mockConnector(), entity)
+	for k, v := range fields {
+		b.Set(k, v)
+	}
+	return b
+}
+
+func newUpdate(entity string, filter string, set string) *UpdateBuilder {
+	b := NewUpdateBuilder(testSchema(), mockConnector(), entity)
+	b.Filter(filter, "eq", 1)
+	b.Set(set, 1)
+	return b
+}
+
+func newDelete(entity string, filter string) *DeleteBuilder {
+	b := NewDeleteBuilder(testSchema(), mockConnector(), entity)
+	b.Filter(filter, "eq", 1)
+	return b
+}
+
+var unknownFieldNames = []string{"missing", "", "id x", `id"`, "id'", "id;", "id--", "id/**/", "ID", "caf\u00e9"}
+
+func TestDeleteBuilder_ValidateRejectsUnknownFilterField(t *testing.T) {
+	for _, name := range unknownFieldNames {
+		builder := NewDeleteBuilder(testSchema(), mockConnector(), "User")
+		builder.Filter("id", "eq", "uuid-123").Filter(name, "eq", "x")
+
+		validator := engine.NewValidator(builder.schema, builder.config)
+		err := validator.ValidateDeleteInput(builder.entity, builder.parseFilters(), false)
+		if _, ok := err.(*engine.UnknownFieldError); !ok {
+			t.Errorf("field %q: expected UnknownFieldError, got %T (%v)", name, err, err)
+		}
+	}
+}
+
+func TestBuilders_ExecuteRejectUnknownFieldsBeforeConnecting(t *testing.T) {
+	// The connector is nil: any attempt to reach the database would panic.
+	ctx := context.Background()
+	for _, name := range unknownFieldNames {
+		if _, err := NewDeleteBuilder(testSchema(), mockConnector(), "User").
+			Filter(name, "eq", "x").Execute(ctx); err == nil {
+			t.Errorf("delete accepted %q", name)
+		}
+		if _, err := NewUpdateBuilder(testSchema(), mockConnector(), "User").
+			Filter(name, "eq", "x").Set("name", "n").Execute(ctx); err == nil {
+			t.Errorf("update filter accepted %q", name)
+		}
+		if _, err := NewUpdateBuilder(testSchema(), mockConnector(), "User").
+			Filter("id", "eq", "uuid-123").Set(name, "n").Execute(ctx); err == nil {
+			t.Errorf("update set accepted %q", name)
+		}
+		if _, err := NewInsertBuilder(testSchema(), mockConnector(), "User").
+			Set(name, "n").Execute(ctx); err == nil {
+			t.Errorf("insert accepted %q", name)
+		}
+	}
+}
+
+func TestBuilders_GenerateQuotedIdentifiers(t *testing.T) {
+	insert, _, err := newInsert("User", map[string]interface{}{"email": "a", "name": "b"}).generateSQL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(insert, `INSERT INTO "users" ("email", "name") VALUES ($1, $2)`) {
+		t.Errorf("unexpected insert SQL: %s", insert)
+	}
+
+	update, _, err := newUpdate("User", "id", "name").generateSQL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(update, `UPDATE "users" SET "name" = $1 WHERE "id" = $2`) {
+		t.Errorf("unexpected update SQL: %s", update)
+	}
+
+	del, _, err := newDelete("User", "id").generateSQL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(del, `DELETE FROM "users" WHERE "id" = $1`) {
+		t.Errorf("unexpected delete SQL: %s", del)
+	}
+}
+
+func TestBuilders_GenerateSQLRejectsInvalidNames(t *testing.T) {
+	for _, name := range unknownFieldNames {
+		if name == "missing" || name == "ID" {
+			continue // valid identifier shapes; rejected by schema validation instead
+		}
+		if _, _, err := newInsert("User", map[string]interface{}{name: 1}).generateSQL(); err == nil {
+			t.Errorf("insert SQL generated for %q", name)
+		}
+		if _, _, err := newUpdate("User", "id", name).generateSQL(); err == nil {
+			t.Errorf("update SET SQL generated for %q", name)
+		}
+		if _, _, err := newUpdate("User", name, "name").generateSQL(); err == nil {
+			t.Errorf("update WHERE SQL generated for %q", name)
+		}
+		if _, _, err := newDelete("User", name).generateSQL(); err == nil {
+			t.Errorf("delete SQL generated for %q", name)
+		}
+	}
+}
+
+func TestBuilders_GenerateSQLRejectsInvalidTableName(t *testing.T) {
+	for _, entity := range []string{`User"; --`, "User x", "1User"} {
+		if _, _, err := newInsert(entity, map[string]interface{}{"a": 1}).generateSQL(); err == nil {
+			t.Errorf("insert SQL generated for entity %q", entity)
+		}
+		if _, _, err := newUpdate(entity, "id", "a").generateSQL(); err == nil {
+			t.Errorf("update SQL generated for entity %q", entity)
+		}
+		if _, _, err := newDelete(entity, "id").generateSQL(); err == nil {
+			t.Errorf("delete SQL generated for entity %q", entity)
+		}
+	}
+}

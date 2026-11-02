@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -35,7 +34,11 @@ func (ex *Executor) Execute(ctx context.Context, qb *QueryBuilder) (*QueryResult
 	identityMap := NewIdentityMap()
 
 	// Execute main query
-	mainRows, err := ex.executeQuery(ctx, generated.MainQuery)
+	mainArgs, err := bindArgs(generated.MainParams, nil)
+	if err != nil {
+		return nil, fmt.Errorf("main query failed: %w", err)
+	}
+	mainRows, err := ex.executeQuery(ctx, generated.MainQuery, mainArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("main query failed: %w", err)
 	}
@@ -49,7 +52,7 @@ func (ex *Executor) Execute(ctx context.Context, qb *QueryBuilder) (*QueryResult
 		"": extractIDs(mainRows, "id"),
 	}
 
-	for _, eager := range generated.EagerQueries {
+	for i, eager := range generated.EagerQueries {
 		if len(eager) < 2 {
 			return nil, fmt.Errorf("invalid eager query format")
 		}
@@ -64,13 +67,17 @@ func (ex *Executor) Execute(ctx context.Context, qb *QueryBuilder) (*QueryResult
 			}
 		}
 
-		// Replace $PARENT_IDS placeholder with actual values.
-		sql, err := replacePlaceholder(relSQL, parentIDs)
+		if i >= len(generated.EagerParams) {
+			return nil, fmt.Errorf("eager query '%s' failed: missing parameters", relName)
+		}
+
+		// Parent ids are bound as an array parameter.
+		args, err := bindArgs(generated.EagerParams[i], parentIDs)
 		if err != nil {
 			return nil, fmt.Errorf("eager query '%s' failed: %w", relName, err)
 		}
 
-		eagerRows, err := ex.executeQuery(ctx, sql)
+		eagerRows, err := ex.executeQuery(ctx, relSQL, args...)
 		if err != nil {
 			return nil, fmt.Errorf("eager query '%s' failed: %w", relName, err)
 		}
@@ -137,9 +144,31 @@ func relationLeafName(relName string) string {
 	return relName[idx+1:]
 }
 
-// executeQuery runs a single SQL query and returns rows.
-func (ex *Executor) executeQuery(ctx context.Context, sql string) ([]Row, error) {
-	rows, err := ex.connector.Pool().Query(ctx, sql)
+// bindArgs converts generated parameters into pgx arguments. parentIDs
+// supplies the value of a ParentIds parameter.
+func bindArgs(params []SQLParam, parentIDs []interface{}) ([]interface{}, error) {
+	args := make([]interface{}, len(params))
+	for i, param := range params {
+		switch param.Kind {
+		case ParamParentIDs:
+			if parentIDs == nil {
+				return nil, fmt.Errorf("parameter $%d needs parent ids", i+1)
+			}
+			args[i] = parentIDs
+		case ParamNull:
+			args[i] = nil
+		case ParamString, ParamInt, ParamFloat, ParamBool:
+			args[i] = param.Value
+		default:
+			return nil, fmt.Errorf("unsupported parameter kind %q", param.Kind)
+		}
+	}
+	return args, nil
+}
+
+// executeQuery runs a single SQL query with bind arguments and returns rows.
+func (ex *Executor) executeQuery(ctx context.Context, sql string, args ...interface{}) ([]Row, error) {
+	rows, err := ex.connector.Pool().Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -201,68 +230,4 @@ func uuidToString(uuid [16]byte) string {
 		uuid[6:8],
 		uuid[8:10],
 		uuid[10:16])
-}
-
-// replacePlaceholder replaces $PARENT_IDS with literal IN-clause values.
-func replacePlaceholder(sql string, ids []interface{}) (string, error) {
-	if len(ids) == 0 {
-		return strings.Replace(sql, "$PARENT_IDS", "NULL", 1), nil
-	}
-
-	placeholders := make([]string, len(ids))
-	for i, id := range ids {
-		literal, err := sqlLiteral(id)
-		if err != nil {
-			return "", err
-		}
-		placeholders[i] = literal
-	}
-
-	return strings.Replace(
-		sql,
-		"$PARENT_IDS",
-		strings.Join(placeholders, ", "),
-		1,
-	), nil
-}
-
-func sqlLiteral(value interface{}) (string, error) {
-	switch v := value.(type) {
-	case nil:
-		return "NULL", nil
-	case string:
-		escaped := strings.ReplaceAll(v, "'", "''")
-		return fmt.Sprintf("'%s'", escaped), nil
-	case int:
-		return strconv.Itoa(v), nil
-	case int8:
-		return strconv.FormatInt(int64(v), 10), nil
-	case int16:
-		return strconv.FormatInt(int64(v), 10), nil
-	case int32:
-		return strconv.FormatInt(int64(v), 10), nil
-	case int64:
-		return strconv.FormatInt(v, 10), nil
-	case uint:
-		return strconv.FormatUint(uint64(v), 10), nil
-	case uint8:
-		return strconv.FormatUint(uint64(v), 10), nil
-	case uint16:
-		return strconv.FormatUint(uint64(v), 10), nil
-	case uint32:
-		return strconv.FormatUint(uint64(v), 10), nil
-	case uint64:
-		return strconv.FormatUint(v, 10), nil
-	case float32:
-		return strconv.FormatFloat(float64(v), 'f', -1, 32), nil
-	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64), nil
-	case bool:
-		if v {
-			return "TRUE", nil
-		}
-		return "FALSE", nil
-	default:
-		return "", fmt.Errorf("unsupported parent id type: %T", value)
-	}
 }

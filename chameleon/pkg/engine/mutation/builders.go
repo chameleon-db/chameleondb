@@ -59,7 +59,10 @@ func (ib *InsertBuilder) Execute(ctx context.Context) (*engine.InsertResult, err
 	}
 
 	// Generate SQL
-	sql, orderedValues := ib.generateSQL()
+	sql, orderedValues, err := ib.generateSQL()
+	if err != nil {
+		return nil, err
+	}
 
 	if ib.shouldDebug() {
 		fmt.Printf("[ENTITY] INSERT INTO %s\n", ib.entity)
@@ -133,45 +136,18 @@ func (ib *InsertBuilder) shouldTrace() bool {
 	return false
 }
 
-func (ib *InsertBuilder) generateSQL() (string, []interface{}) {
-	// Get entity definition for table name
-	ent := ib.schema.GetEntity(ib.entity)
-	if ent == nil {
-		// Fallback: simple lowercase + "s"
-		return ib.generateSQLFallback()
-	}
-
-	// Use entity table name (handles pluralization correctly)
-	tableName := entityToTableName(ib.entity)
-
-	var fields []string
-	var placeholders []string
-	var values []interface{}
-
-	// Get field names and sort them for consistent order
-	for field := range ib.values {
-		fields = append(fields, field)
-	}
-	sort.Strings(fields)
-
-	// Build placeholders and values in sorted order
-	for i, field := range fields {
-		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
-		values = append(values, ib.values[field])
-	}
-
-	sql := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES (%s) RETURNING *",
-		tableName,
-		strings.Join(fields, ", "),
-		strings.Join(placeholders, ", "),
-	)
-
-	return sql, values
-}
-
-func (ib *InsertBuilder) generateSQLFallback() (string, []interface{}) {
+func (ib *InsertBuilder) generateSQL() (string, []interface{}, error) {
+	// Table name: entity table name (handles pluralization correctly), or a
+	// simple lowercase + "s" fallback when the entity is unknown.
 	tableName := strings.ToLower(ib.entity) + "s"
+	if ib.schema.GetEntity(ib.entity) != nil {
+		tableName = entityToTableName(ib.entity)
+	}
+
+	quotedTable, err := engine.QuoteIdent(tableName)
+	if err != nil {
+		return "", nil, fmt.Errorf("invalid table name for entity %q", ib.entity)
+	}
 
 	var fields []string
 	var placeholders []string
@@ -184,19 +160,25 @@ func (ib *InsertBuilder) generateSQLFallback() (string, []interface{}) {
 	sort.Strings(fields)
 
 	// Build placeholders and values in sorted order
+	columns := make([]string, 0, len(fields))
 	for i, field := range fields {
+		column, err := engine.QuoteIdent(field)
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid field name %q", field)
+		}
+		columns = append(columns, column)
 		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
 		values = append(values, ib.values[field])
 	}
 
 	sql := fmt.Sprintf(
 		"INSERT INTO %s (%s) VALUES (%s) RETURNING *",
-		tableName,
-		strings.Join(fields, ", "),
+		quotedTable,
+		strings.Join(columns, ", "),
 		strings.Join(placeholders, ", "),
 	)
 
-	return sql, values
+	return sql, values, nil
 }
 
 // ============================================================
@@ -327,7 +309,10 @@ func (ub *UpdateBuilder) shouldTrace() bool {
 }
 
 func (ub *UpdateBuilder) generateSQL() (string, []interface{}, error) {
-	tableName := entityToTableName(ub.entity)
+	tableName, err := engine.QuoteIdent(entityToTableName(ub.entity))
+	if err != nil {
+		return "", nil, fmt.Errorf("invalid table name for entity %q", ub.entity)
+	}
 
 	var setClauses []string
 	var values []interface{}
@@ -341,7 +326,11 @@ func (ub *UpdateBuilder) generateSQL() (string, []interface{}, error) {
 	sort.Strings(updateFields)
 
 	for _, field := range updateFields {
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", field, paramIndex))
+		column, err := engine.QuoteIdent(field)
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid field name %q", field)
+		}
+		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", column, paramIndex))
 		values = append(values, ub.updates[field])
 		paramIndex++
 	}
@@ -371,7 +360,12 @@ func (ub *UpdateBuilder) generateSQL() (string, []interface{}, error) {
 			return "", nil, err
 		}
 
-		whereClauses = append(whereClauses, fmt.Sprintf("%s %s $%d", field, sqlOp, paramIndex))
+		column, err := engine.QuoteIdent(field)
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid field name %q", field)
+		}
+
+		whereClauses = append(whereClauses, fmt.Sprintf("%s %s $%d", column, sqlOp, paramIndex))
 		values = append(values, ub.filters[filterKey])
 		paramIndex++
 	}
@@ -500,7 +494,10 @@ func (db *DeleteBuilder) shouldTrace() bool {
 }
 
 func (db *DeleteBuilder) generateSQL() (string, []interface{}, error) {
-	tableName := entityToTableName(db.entity)
+	tableName, err := engine.QuoteIdent(entityToTableName(db.entity))
+	if err != nil {
+		return "", nil, fmt.Errorf("invalid table name for entity %q", db.entity)
+	}
 
 	var whereClauses []string
 	var values []interface{}
@@ -519,7 +516,12 @@ func (db *DeleteBuilder) generateSQL() (string, []interface{}, error) {
 			return "", nil, err
 		}
 
-		whereClauses = append(whereClauses, fmt.Sprintf("%s %s $%d", field, sqlOp, paramIndex))
+		column, err := engine.QuoteIdent(field)
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid field name %q", field)
+		}
+
+		whereClauses = append(whereClauses, fmt.Sprintf("%s %s $%d", column, sqlOp, paramIndex))
 		values = append(values, value)
 		paramIndex++
 	}

@@ -217,7 +217,7 @@ mod tests {
         let result = generate_sql(&query, &schema).unwrap();
         
         // Should only select id and name
-        assert!(result.main_query.contains("SELECT id, name"));
+        assert!(result.main_query.contains("SELECT \"id\", \"name\""));
         assert!(!result.main_query.contains("email"));
         assert!(!result.main_query.contains("age"));
     }

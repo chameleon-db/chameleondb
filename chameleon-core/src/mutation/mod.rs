@@ -1,5 +1,27 @@
 use crate::ast::Schema;
+use crate::sql::naming::quote_ident;
 use serde_json::{json, Value};
+
+/// Check that a field name exists in the entity and render it as a quoted
+/// identifier.
+fn quoted_field(entity: &crate::ast::Entity, field_name: &str) -> Result<String, String> {
+    if !entity.fields.contains_key(field_name) {
+        return Err(format!("Unknown field '{}' in entity '{}'", field_name, entity.name));
+    }
+    quote_ident(field_name).ok_or_else(|| "Invalid identifier".to_string())
+}
+
+/// Validate every key of a JSON object against the entity.
+/// Returns (name, quoted name) pairs.
+fn quoted_keys(
+    entity: &crate::ast::Entity,
+    object: &serde_json::Map<String, Value>,
+) -> Result<Vec<(String, String)>, String> {
+    object
+        .keys()
+        .map(|k| quoted_field(entity, k).map(|q| (k.clone(), q)))
+        .collect()
+}
 
 /// Generate SQL for a mutation operation
 pub fn generate_mutation_sql(mutation: &Value, schema: &Schema) -> Value {
@@ -33,21 +55,20 @@ fn generate_insert_sql(mutation: &Value, entity: &crate::ast::Entity) -> Value {
         None => return error_response("Missing or invalid 'fields' in INSERT mutation"),
     };
 
-    for field_name in fields.keys() {
-        if !entity.fields.contains_key(field_name) {
-            return error_response(&format!("Unknown field '{}' in entity '{}'", field_name, entity.name));
-        }
-    }
+    let quoted = match quoted_keys(entity, fields) {
+        Ok(q) => q,
+        Err(e) => return error_response(&e),
+    };
 
     let mut columns = Vec::new();
     let mut placeholders = Vec::new();
     let mut params = Vec::new();
 
     let mut param_index = 1;
-    for field_name in fields.keys() {
-        columns.push(format!("\"{}\"", field_name));
+    for (field_name, column) in quoted {
+        columns.push(column);
         placeholders.push(format!("${}", param_index));
-        params.push(field_name.clone());
+        params.push(field_name);
         param_index += 1;
     }
 
@@ -83,10 +104,11 @@ fn generate_update_sql(mutation: &Value, entity: &crate::ast::Entity) -> Value {
         return error_response("UPDATE requires at least one filter (WHERE clause)");
     }
 
-    for field_name in fields.keys() {
-        if !entity.fields.contains_key(field_name) {
-            return error_response(&format!("Unknown field '{}' in entity '{}'", field_name, entity.name));
-        }
+    let quoted_fields = match quoted_keys(entity, fields) {
+        Ok(q) => q,
+        Err(e) => return error_response(&e),
+    };
+    for (field_name, _) in &quoted_fields {
         if let Some(field) = entity.fields.get(field_name) {
             if field.primary_key {
                 return error_response("Cannot update primary key");
@@ -94,20 +116,25 @@ fn generate_update_sql(mutation: &Value, entity: &crate::ast::Entity) -> Value {
         }
     }
 
+    let quoted_filters = match quoted_keys(entity, filters) {
+        Ok(q) => q,
+        Err(e) => return error_response(&e),
+    };
+
     let mut set_clauses = Vec::new();
     let mut params = Vec::new();
     let mut param_index = 1;
 
-    for field_name in fields.keys() {
-        set_clauses.push(format!("\"{}\"=${}", field_name, param_index));
-        params.push(field_name.clone());
+    for (field_name, column) in quoted_fields {
+        set_clauses.push(format!("{}=${}", column, param_index));
+        params.push(field_name);
         param_index += 1;
     }
 
     let mut where_parts = Vec::new();
-    for filter_field in filters.keys() {
-        where_parts.push(format!("\"{}\"=${}", filter_field, param_index));
-        params.push(filter_field.clone());
+    for (filter_field, column) in quoted_filters {
+        where_parts.push(format!("{}=${}", column, param_index));
+        params.push(filter_field);
         param_index += 1;
     }
 
@@ -138,13 +165,18 @@ fn generate_delete_sql(mutation: &Value, entity: &crate::ast::Entity) -> Value {
         return error_response("DELETE requires at least one filter (WHERE clause) for safety");
     }
 
+    let quoted_filters = match quoted_keys(entity, filters) {
+        Ok(q) => q,
+        Err(e) => return error_response(&e),
+    };
+
     let mut where_parts = Vec::new();
     let mut params = Vec::new();
     let mut param_index = 1;
 
-    for filter_field in filters.keys() {
-        where_parts.push(format!("\"{}\"=${}", filter_field, param_index));
-        params.push(filter_field.clone());
+    for (filter_field, column) in quoted_filters {
+        where_parts.push(format!("{}=${}", column, param_index));
+        params.push(filter_field);
         param_index += 1;
     }
 
@@ -628,5 +660,98 @@ fn test_insert_single_field() {
         assert!(sql.contains("DELETE FROM"));
         assert!(sql.contains("WHERE"));
         assert!(sql.contains("$"));
+    }
+
+    // ============================================================
+    // IDENTIFIER VALIDATION TESTS
+    // ============================================================
+
+    fn unknown_keys() -> Vec<&'static str> {
+        vec![
+            "missing",
+            "",
+            "id x",
+            "id\"",
+            "i'd",
+            "id;",
+            "id--",
+            "id/**/",
+            "ID",
+            "id=id OR id",
+            "caf\u{e9}",
+        ]
+    }
+
+    #[test]
+    fn test_update_unknown_filter_key_is_rejected() {
+        let schema = test_schema();
+        for key in unknown_keys() {
+            let mutation = serde_json::json!({
+                "type": "update",
+                "entity": "User",
+                "filters": { key: "x" },
+                "fields": {"name": "Ana"}
+            });
+            let result = generate_mutation_sql(&mutation, &schema);
+            assert_eq!(result["valid"], false, "accepted filter key {:?}", key);
+            assert!(result.get("sql").is_none());
+        }
+    }
+
+    #[test]
+    fn test_delete_unknown_filter_key_is_rejected() {
+        let schema = test_schema();
+        for key in unknown_keys() {
+            let mutation = serde_json::json!({
+                "type": "delete",
+                "entity": "User",
+                "filters": { key: "x" }
+            });
+            let result = generate_mutation_sql(&mutation, &schema);
+            assert_eq!(result["valid"], false, "accepted filter key {:?}", key);
+            assert!(result.get("sql").is_none());
+        }
+    }
+
+    #[test]
+    fn test_unknown_key_among_valid_filters_is_rejected() {
+        let schema = test_schema();
+        let mutation = serde_json::json!({
+            "type": "delete",
+            "entity": "User",
+            "filters": {"id": "x", "missing": "y"}
+        });
+        assert_eq!(generate_mutation_sql(&mutation, &schema)["valid"], false);
+    }
+
+    #[test]
+    fn test_insert_and_update_unknown_field_keys_are_rejected() {
+        let schema = test_schema();
+        for key in unknown_keys() {
+            let insert = serde_json::json!({
+                "type": "insert", "entity": "User", "fields": { key: "x" }
+            });
+            assert_eq!(generate_mutation_sql(&insert, &schema)["valid"], false, "insert {:?}", key);
+
+            let update = serde_json::json!({
+                "type": "update", "entity": "User",
+                "filters": {"id": "x"}, "fields": { key: "x" }
+            });
+            assert_eq!(generate_mutation_sql(&update, &schema)["valid"], false, "update {:?}", key);
+        }
+    }
+
+    #[test]
+    fn test_valid_filter_keys_are_quoted() {
+        let schema = test_schema();
+        let mutation = serde_json::json!({
+            "type": "delete",
+            "entity": "User",
+            "filters": {"email": "a"}
+        });
+        let result = generate_mutation_sql(&mutation, &schema);
+
+        assert_eq!(result["valid"], true);
+        assert!(result["sql"].as_str().unwrap().contains("WHERE \"email\"=$1"));
     }
 }

@@ -1,0 +1,9 @@
+entity Sample {
+    id: uuid primary,
+    label: string,
+    qty: int nullable,
+    amount: decimal,
+    active: bool,
+    ratio: float nullable,
+    seen_at: timestamp nullable,
+}

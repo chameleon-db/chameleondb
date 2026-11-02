@@ -48,31 +48,64 @@ func TestNewConnectorNotConnected(t *testing.T) {
 	}
 }
 
-func TestReplacePlaceholderStrings(t *testing.T) {
-	sql := "SELECT * FROM orders WHERE user_id IN ($PARENT_IDS)"
+func TestBindArgsParentIDs(t *testing.T) {
 	ids := []interface{}{"uuid-1", "uuid-2", "uuid-3"}
 
-	result, err := replacePlaceholder(sql, ids)
+	args, err := bindArgs([]SQLParam{{Kind: ParamParentIDs}}, ids)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	assertContains(t, result, "'uuid-1'")
-	assertContains(t, result, "'uuid-2'")
-	assertContains(t, result, "'uuid-3'")
-	assertContains(t, result, "WHERE user_id IN")
+	if len(args) != 1 {
+		t.Fatalf("Expected 1 arg, got %d", len(args))
+	}
+	bound, ok := args[0].([]interface{})
+	if !ok || len(bound) != 3 || bound[0] != "uuid-1" || bound[2] != "uuid-3" {
+		t.Fatalf("Unexpected bound ids: %#v", args[0])
+	}
 }
 
-func TestReplacePlaceholderEmpty(t *testing.T) {
-	sql := "SELECT * FROM orders WHERE user_id IN ($PARENT_IDS)"
-	ids := []interface{}{}
-
-	result, err := replacePlaceholder(sql, ids)
+func TestBindArgsEmptyParentIDs(t *testing.T) {
+	args, err := bindArgs([]SQLParam{{Kind: ParamParentIDs}}, []interface{}{})
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	assertContains(t, result, "WHERE user_id IN (NULL)")
+	bound, ok := args[0].([]interface{})
+	if !ok || len(bound) != 0 {
+		t.Fatalf("Expected empty id list, got %#v", args[0])
+	}
+}
+
+func TestBindArgsValues(t *testing.T) {
+	params := []SQLParam{
+		{Kind: ParamString, Value: "x"},
+		{Kind: ParamInt, Value: int64(7)},
+		{Kind: ParamFloat, Value: 1.5},
+		{Kind: ParamBool, Value: true},
+		{Kind: ParamNull},
+	}
+
+	args, err := bindArgs(params, nil)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	want := []interface{}{"x", int64(7), 1.5, true, nil}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Errorf("arg %d: got %#v, want %#v", i, args[i], want[i])
+		}
+	}
+}
+
+func TestBindArgsRejectsInvalidParams(t *testing.T) {
+	if _, err := bindArgs([]SQLParam{{Kind: ParamParentIDs}}, nil); err == nil {
+		t.Error("Expected error for parent ids without a parent query")
+	}
+	if _, err := bindArgs([]SQLParam{{Kind: "Other"}}, nil); err == nil {
+		t.Error("Expected error for unknown parameter kind")
+	}
 }
 
 func TestExtractIDs(t *testing.T) {

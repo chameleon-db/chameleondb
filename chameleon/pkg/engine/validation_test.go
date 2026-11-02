@@ -441,3 +441,32 @@ func TestIsValidEmail(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateDeleteInput_UnknownFilterField(t *testing.T) {
+	schema := getTestSchema()
+	validator := NewValidator(schema, DefaultValidatorConfig())
+
+	for _, field := range []string{"missing", "", "id x", `id"`, "id;", "id--", "ID"} {
+		filters := map[string]interface{}{
+			"id":  uuid.New().String(),
+			field: "x",
+		}
+
+		err := validator.ValidateDeleteInput("User", filters, false)
+		unknownErr, ok := err.(*UnknownFieldError)
+		if !ok {
+			t.Fatalf("field %q: expected UnknownFieldError, got %T (%v)", field, err, err)
+		}
+		if unknownErr.Field != field {
+			t.Errorf("expected field %q in error, got %q", field, unknownErr.Field)
+		}
+	}
+}
+
+func TestValidateDeleteInput_ForceDeleteAllStillAllowsNoFilters(t *testing.T) {
+	validator := NewValidator(getTestSchema(), DefaultValidatorConfig())
+
+	if err := validator.ValidateDeleteInput("User", map[string]interface{}{}, true); err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+}
