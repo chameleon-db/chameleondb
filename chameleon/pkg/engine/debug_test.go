@@ -285,3 +285,24 @@ func TestGetDebugContext(t *testing.T) {
 		})
 	}
 }
+
+func TestDebugLogParamsShowsParametersSeparately(t *testing.T) {
+	var buf bytes.Buffer
+	dc := &DebugContext{Level: DebugSQL, Writer: &buf}
+
+	dc.LogSQL(`SELECT "id" FROM "users" WHERE "name" = $1`)
+	dc.LogParams([]SQLParam{NewSQLParam("o'brien")})
+
+	out := buf.String()
+	assert.Contains(t, out, `WHERE "name" = $1`)
+	assert.Contains(t, out, `$1 = String("o'brien")`)
+}
+
+func TestDebugLogParamsRespectsLevel(t *testing.T) {
+	var buf bytes.Buffer
+	dc := &DebugContext{Level: DebugNone, Writer: &buf}
+
+	dc.LogParams([]SQLParam{NewSQLParam("x")})
+
+	assert.Empty(t, buf.String())
+}

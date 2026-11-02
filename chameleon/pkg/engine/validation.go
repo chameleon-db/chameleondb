@@ -216,6 +216,16 @@ func (v *Validator) ValidateDeleteInput(
 		}
 	}
 
+	for fieldName := range filters {
+		if _, ok := ent.Fields[fieldName]; !ok {
+			return &UnknownFieldError{
+				Entity:    ent.Name,
+				Field:     fieldName,
+				Available: v.getAvailableFields(ent),
+			}
+		}
+	}
+
 	return nil
 }
 

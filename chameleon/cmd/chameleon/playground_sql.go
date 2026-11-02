@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -49,6 +48,7 @@ type playgroundSQLError struct {
 type playgroundSQLResponse struct {
 	OK           bool                `json:"ok"`
 	MainQuery    string              `json:"main_query,omitempty"`
+	MainParams   []engine.SQLParam   `json:"main_params,omitempty"`
 	EagerQueries []engine.EagerQuery `json:"eager_queries,omitempty"`
 	Error        *playgroundSQLError `json:"error,omitempty"`
 }
@@ -231,7 +231,7 @@ func processPlaygroundSQL(input []byte) playgroundSQLResponse {
 	}
 
 	if request.Mutation != nil {
-		sql, err := buildMutationSQL(eng.GetSchema(), request.Mutation)
+		sql, params, err := buildMutationSQL(eng.GetSchema(), request.Mutation)
 		if err != nil {
 			return playgroundSQLResponse{
 				OK: false,
@@ -243,8 +243,9 @@ func processPlaygroundSQL(input []byte) playgroundSQLResponse {
 		}
 
 		return playgroundSQLResponse{
-			OK:        true,
-			MainQuery: sql,
+			OK:         true,
+			MainQuery:  sql,
+			MainParams: params,
 		}
 	}
 
@@ -305,18 +306,23 @@ func processPlaygroundSQL(input []byte) playgroundSQLResponse {
 	}
 
 	response := playgroundSQLResponse{
-		OK:        true,
-		MainQuery: generated.MainQuery,
+		OK:         true,
+		MainQuery:  generated.MainQuery,
+		MainParams: generated.MainParams,
 	}
 
 	if len(generated.EagerQueries) > 0 {
 		eagerQueries := make([]engine.EagerQuery, 0, len(generated.EagerQueries))
-		for _, item := range generated.EagerQueries {
+		for i, item := range generated.EagerQueries {
 			if len(item) >= 2 {
-				eagerQueries = append(eagerQueries, engine.EagerQuery{
+				eager := engine.EagerQuery{
 					Relation: item[0],
 					SQL:      item[1],
-				})
+				}
+				if i < len(generated.EagerParams) {
+					eager.Params = generated.EagerParams[i]
+				}
+				eagerQueries = append(eagerQueries, eager)
 			}
 		}
 		response.EagerQueries = eagerQueries
@@ -468,19 +474,21 @@ func normalizeFilterOp(op string) string {
 	return op
 }
 
-func buildMutationSQL(schema *engine.Schema, mutation *playgroundSQLMutation) (string, error) {
+// buildMutationSQL renders a mutation as placeholder SQL plus its parameters.
+// Values are never substituted into the SQL text.
+func buildMutationSQL(schema *engine.Schema, mutation *playgroundSQLMutation) (string, []engine.SQLParam, error) {
 	if mutation == nil {
-		return "", fmt.Errorf("mutation payload is nil")
+		return "", nil, fmt.Errorf("mutation payload is nil")
 	}
 
 	entityName := strings.TrimSpace(mutation.Entity)
 	if entityName == "" {
-		return "", fmt.Errorf("mutation.entity is required")
+		return "", nil, fmt.Errorf("mutation.entity is required")
 	}
 
 	entity := findSchemaEntity(schema, entityName)
 	if entity == nil {
-		return "", fmt.Errorf("entity '%s' not found in schema", entityName)
+		return "", nil, fmt.Errorf("entity '%s' not found in schema", entityName)
 	}
 
 	mutationType := strings.ToLower(strings.TrimSpace(mutation.Type))
@@ -492,15 +500,33 @@ func buildMutationSQL(schema *engine.Schema, mutation *playgroundSQLMutation) (s
 	case "delete":
 		return buildDeleteSQL(entity, mutation)
 	default:
-		return "", fmt.Errorf("unsupported mutation.type '%s': use insert, update or delete", mutation.Type)
+		return "", nil, fmt.Errorf("unsupported mutation.type '%s': use insert, update or delete", mutation.Type)
 	}
 }
 
-func buildInsertSQL(entity *engine.Entity, mutation *playgroundSQLMutation) (string, error) {
+// playgroundParams numbers placeholders in the order values are added.
+type playgroundParams []engine.SQLParam
+
+func (p *playgroundParams) add(value interface{}) string {
+	*p = append(*p, newPlaygroundParam(value))
+	return fmt.Sprintf("$%d", len(*p))
+}
+
+// newPlaygroundParam converts a decoded JSON value into a parameter.
+// JSON numbers decode as float64; whole numbers are reported as integers.
+func newPlaygroundParam(value interface{}) engine.SQLParam {
+	if f, ok := value.(float64); ok && float64(int64(f)) == f {
+		return engine.NewSQLParam(int64(f))
+	}
+	return engine.NewSQLParam(value)
+}
+
+func buildInsertSQL(entity *engine.Entity, mutation *playgroundSQLMutation) (string, []engine.SQLParam, error) {
 	if len(mutation.Set) == 0 {
-		return "", fmt.Errorf("insert requires non-empty mutation.set")
+		return "", nil, fmt.Errorf("insert requires non-empty mutation.set")
 	}
 
+	var params playgroundParams
 	keys := sortedMapKeys(mutation.Set)
 	columns := make([]string, 0, len(keys))
 	values := make([]string, 0, len(keys))
@@ -508,34 +534,35 @@ func buildInsertSQL(entity *engine.Entity, mutation *playgroundSQLMutation) (str
 	for _, key := range keys {
 		fieldName, ok := resolveFieldName(entity, key)
 		if !ok {
-			return "", fmt.Errorf("field '%s' not found in entity %s", key, entity.Name)
+			return "", nil, fmt.Errorf("field '%s' not found in entity %s", key, entity.Name)
 		}
 		columns = append(columns, toSnakeCase(fieldName))
-		values = append(values, toSQLLiteral(mutation.Set[key]))
+		values = append(values, params.add(mutation.Set[key]))
 	}
 
 	table := pluralize(toSnakeCase(entity.Name))
-	return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s);", table, strings.Join(columns, ", "), strings.Join(values, ", ")), nil
+	return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s);", table, strings.Join(columns, ", "), strings.Join(values, ", ")), params, nil
 }
 
-func buildUpdateSQL(entity *engine.Entity, mutation *playgroundSQLMutation) (string, error) {
+func buildUpdateSQL(entity *engine.Entity, mutation *playgroundSQLMutation) (string, []engine.SQLParam, error) {
 	if len(mutation.Set) == 0 {
-		return "", fmt.Errorf("update requires non-empty mutation.set")
+		return "", nil, fmt.Errorf("update requires non-empty mutation.set")
 	}
 
+	var params playgroundParams
 	keys := sortedMapKeys(mutation.Set)
 	setClauses := make([]string, 0, len(keys))
 	for _, key := range keys {
 		fieldName, ok := resolveFieldName(entity, key)
 		if !ok {
-			return "", fmt.Errorf("field '%s' not found in entity %s", key, entity.Name)
+			return "", nil, fmt.Errorf("field '%s' not found in entity %s", key, entity.Name)
 		}
-		setClauses = append(setClauses, fmt.Sprintf("%s = %s", toSnakeCase(fieldName), toSQLLiteral(mutation.Set[key])))
+		setClauses = append(setClauses, fmt.Sprintf("%s = %s", toSnakeCase(fieldName), params.add(mutation.Set[key])))
 	}
 
-	whereClauses, err := buildWhereClauses(entity, mutation.Filters)
+	whereClauses, err := buildWhereClauses(entity, mutation.Filters, &params)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	table := pluralize(toSnakeCase(entity.Name))
@@ -544,13 +571,14 @@ func buildUpdateSQL(entity *engine.Entity, mutation *playgroundSQLMutation) (str
 		sql += " WHERE " + strings.Join(whereClauses, " AND ")
 	}
 	sql += ";"
-	return sql, nil
+	return sql, params, nil
 }
 
-func buildDeleteSQL(entity *engine.Entity, mutation *playgroundSQLMutation) (string, error) {
-	whereClauses, err := buildWhereClauses(entity, mutation.Filters)
+func buildDeleteSQL(entity *engine.Entity, mutation *playgroundSQLMutation) (string, []engine.SQLParam, error) {
+	var params playgroundParams
+	whereClauses, err := buildWhereClauses(entity, mutation.Filters, &params)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	table := pluralize(toSnakeCase(entity.Name))
@@ -559,10 +587,10 @@ func buildDeleteSQL(entity *engine.Entity, mutation *playgroundSQLMutation) (str
 		sql += " WHERE " + strings.Join(whereClauses, " AND ")
 	}
 	sql += ";"
-	return sql, nil
+	return sql, params, nil
 }
 
-func buildWhereClauses(entity *engine.Entity, filters []playgroundSQLMutationFilter) ([]string, error) {
+func buildWhereClauses(entity *engine.Entity, filters []playgroundSQLMutationFilter, params *playgroundParams) ([]string, error) {
 	clauses := make([]string, 0, len(filters))
 	for _, filter := range filters {
 		fieldName, ok := resolveFieldName(entity, filter.Field)
@@ -575,7 +603,7 @@ func buildWhereClauses(entity *engine.Entity, filters []playgroundSQLMutationFil
 			return nil, err
 		}
 
-		clauses = append(clauses, fmt.Sprintf("%s %s %s", toSnakeCase(fieldName), sqlOp, toSQLLiteral(filter.Value)))
+		clauses = append(clauses, fmt.Sprintf("%s %s %s", toSnakeCase(fieldName), sqlOp, params.add(filter.Value)))
 	}
 
 	return clauses, nil
@@ -643,35 +671,6 @@ func sortedMapKeys(values map[string]interface{}) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-func toSQLLiteral(value interface{}) string {
-	switch v := value.(type) {
-	case nil:
-		return "NULL"
-	case bool:
-		if v {
-			return "TRUE"
-		}
-		return "FALSE"
-	case int:
-		return strconv.Itoa(v)
-	case int8, int16, int32, int64:
-		return fmt.Sprintf("%d", v)
-	case uint, uint8, uint16, uint32, uint64:
-		return fmt.Sprintf("%d", v)
-	case float32:
-		return strconv.FormatFloat(float64(v), 'f', -1, 64)
-	case float64:
-		if float64(int64(v)) == v {
-			return strconv.FormatInt(int64(v), 10)
-		}
-		return strconv.FormatFloat(v, 'f', -1, 64)
-	case string:
-		return "'" + strings.ReplaceAll(v, "'", "''") + "'"
-	default:
-		return "'" + strings.ReplaceAll(fmt.Sprintf("%v", v), "'", "''") + "'"
-	}
 }
 
 func toSnakeCase(input string) string {

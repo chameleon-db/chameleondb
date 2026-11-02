@@ -87,6 +87,23 @@ func (dc *DebugContext) LogSQL(sql string) {
 	}
 }
 
+// LogParams logs the parameters of a statement, separately from its SQL text.
+func (dc *DebugContext) LogParams(params []SQLParam) {
+	if dc.Level < DebugSQL || len(params) == 0 {
+		return
+	}
+
+	if dc.ColorOutput {
+		fmt.Fprintf(dc.Writer, "\033[36m[PARAMS]\033[0m\n")
+	} else {
+		fmt.Fprintf(dc.Writer, "[PARAMS]\n")
+	}
+	for i, param := range params {
+		fmt.Fprintf(dc.Writer, "$%d = %s\n", i+1, param)
+	}
+	fmt.Fprintf(dc.Writer, "\n")
+}
+
 // LogQuery logs full query trace
 func (dc *DebugContext) LogQuery(sql string, duration time.Duration, rowCount int) {
 	if dc.Level < DebugTrace {

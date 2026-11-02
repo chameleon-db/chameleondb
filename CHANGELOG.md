@@ -6,6 +6,16 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 ---
 
+## [Unreleased] - 2026-11
+
+### Security
+- Hardened query and mutation generation. See GHSA-2r6g-424r-6xmr.
+
+### Changed
+- Hardened the mutation path: table and column names in insert, update and delete are validated against the schema and quoted. Delete filters now reject unknown fields with `UnknownFieldError` before reaching the database.
+- Float filter values are bound as `numeric`, so comparisons with integer columns keep their exact value.
+- Added `engine.QuoteIdent` for validating and quoting identifiers.
+
 ## [Unreleased]
 
 ### Added
@@ -16,6 +26,12 @@ and this project adheres to Semantic Versioning (pre-1.0).
 ### Changed
 - Refactored documentation structure and clarified engine security guarantees.
 - Hardened schema loading paths to prevent non-vault execution.
+- Hardened query generation: values are bound as parameters (`$1..$n`) instead of being written into SQL text, and identifiers are validated against the schema and quoted.
+- `GeneratedSQL` gained `main_params` and `eager_params` (optional in the JSON). `ToSQL`, `Debug` and `playground-sql` show placeholder SQL and parameters separately.
+- Eager loading binds parent ids as one array parameter (`= ANY($1)`).
+- `like` filters escape `%`, `_` and `\` in the value and declare `ESCAPE '\'`.
+- Query generation now rejects the `in` operator, `like` on non-string values and relation paths deeper than `relation.field`; these did not produce working SQL before.
+- Generated identifiers are quoted (and folded to lower case, as unquoted names are in PostgreSQL), so `FROM users` is now `FROM "users"`.
 
 ### Fixed
 - Corrected `pkg-config` installation logic in install scripts.

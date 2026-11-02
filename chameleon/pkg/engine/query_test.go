@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -49,7 +51,7 @@ func TestQueryBuilder_SimpleQuery(t *testing.T) {
 	}
 
 	assertContains(t, result.MainQuery, "SELECT")
-	assertContains(t, result.MainQuery, "FROM users")
+	assertContains(t, result.MainQuery, `FROM "users"`)
 }
 
 func TestQueryBuilder_FilterEquality(t *testing.T) {
@@ -63,8 +65,13 @@ func TestQueryBuilder_FilterEquality(t *testing.T) {
 	}
 
 	assertContains(t, result.MainQuery, "WHERE")
-	assertContains(t, result.MainQuery, "email")
-	assertContains(t, result.MainQuery, "ana@mail.com")
+	assertContains(t, result.MainQuery, `"email" = $1`)
+	if strings.Contains(result.MainQuery, "ana@mail.com") {
+		t.Errorf("value must not appear in SQL text: %s", result.MainQuery)
+	}
+	if len(result.MainParams) != 1 || result.MainParams[0] != (SQLParam{Kind: ParamString, Value: "ana@mail.com"}) {
+		t.Errorf("unexpected params: %#v", result.MainParams)
+	}
 }
 
 func TestQueryBuilder_MultipleFilters(t *testing.T) {
@@ -78,8 +85,11 @@ func TestQueryBuilder_MultipleFilters(t *testing.T) {
 		t.Fatalf("ToSQL failed: %v", err)
 	}
 
-	assertContains(t, result.MainQuery, "18")
-	assertContains(t, result.MainQuery, "65")
+	assertContains(t, result.MainQuery, "$1")
+	assertContains(t, result.MainQuery, "$2")
+	if len(result.MainParams) != 2 {
+		t.Fatalf("expected 2 params, got %d", len(result.MainParams))
+	}
 	assertContains(t, result.MainQuery, "AND")
 }
 
@@ -200,4 +210,127 @@ func searchString(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestQueryBuilder_ValuesAreNotInSQLText(t *testing.T) {
+	e := setupTestEngine(t)
+
+	values := []string{
+		"o'brien", "''", "x; y", "a -- b", "/* c */", `back\slash`,
+		"café 中文", "100%", "a_b", "line\nbreak",
+	}
+
+	for _, value := range values {
+		result, err := e.Query("User").
+			Filter("name", "eq", value).
+			Filter("orders.status", "neq", value).
+			ToSQL()
+		if err != nil {
+			t.Fatalf("ToSQL failed for %q: %v", value, err)
+		}
+
+		if strings.Contains(result.MainQuery, value) {
+			t.Errorf("value %q appears in SQL text %q", value, result.MainQuery)
+		}
+		if len(result.MainParams) != 2 || result.MainParams[0] != NewSQLParam(value) || result.MainParams[1] != NewSQLParam(value) {
+			t.Errorf("unexpected params for %q: %#v", value, result.MainParams)
+		}
+	}
+}
+
+func TestQueryBuilder_UnknownIdentifiersAreRejected(t *testing.T) {
+	e := setupTestEngine(t)
+
+	builders := map[string]*QueryBuilder{
+		"select":   e.Query("User").Select("id", "missing"),
+		"filter":   e.Query("User").Filter("missing", "eq", 1),
+		"relation": e.Query("User").Filter("missing.total", "eq", 1),
+		"nested":   e.Query("User").Filter("orders.missing", "eq", 1),
+		"order_by": e.Query("User").OrderBy("missing", "asc"),
+		"include":  e.Query("User").Include("orders.missing"),
+	}
+
+	for name, qb := range builders {
+		if result, err := qb.ToSQL(); err == nil {
+			t.Errorf("%s: expected error, got SQL %q", name, result.MainQuery)
+		}
+	}
+}
+
+func TestQueryBuilder_EagerQueriesCarryParentIDParameter(t *testing.T) {
+	e := setupTestEngine(t)
+
+	result, err := e.Query("User").Include("orders.items").ToSQL()
+	if err != nil {
+		t.Fatalf("ToSQL failed: %v", err)
+	}
+
+	if len(result.EagerQueries) != 2 || len(result.EagerParams) != 2 {
+		t.Fatalf("expected 2 eager queries with params, got %d and %d", len(result.EagerQueries), len(result.EagerParams))
+	}
+	for i, params := range result.EagerParams {
+		assertContains(t, result.EagerQueries[i][1], "= ANY($1)")
+		if len(params) != 1 || params[0].Kind != ParamParentIDs {
+			t.Errorf("eager query %d: unexpected params %#v", i, params)
+		}
+	}
+}
+
+func TestSQLParamJSON(t *testing.T) {
+	input := `[{"String":"x"},{"Int":9007199254740993},{"Float":1.5},{"Bool":true},"Null","ParentIds"]`
+
+	var params []SQLParam
+	if err := json.Unmarshal([]byte(input), &params); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	want := []SQLParam{
+		{Kind: ParamString, Value: "x"},
+		{Kind: ParamInt, Value: int64(9007199254740993)},
+		{Kind: ParamFloat, Value: 1.5},
+		{Kind: ParamBool, Value: true},
+		{Kind: ParamNull},
+		{Kind: ParamParentIDs},
+	}
+	if len(params) != len(want) {
+		t.Fatalf("expected %d params, got %d", len(want), len(params))
+	}
+	for i := range want {
+		if params[i] != want[i] {
+			t.Errorf("param %d: got %#v, want %#v", i, params[i], want[i])
+		}
+	}
+
+	out, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	var again []SQLParam
+	if err := json.Unmarshal(out, &again); err != nil {
+		t.Fatalf("round trip failed: %v", err)
+	}
+	for i := range want {
+		if again[i] != want[i] {
+			t.Errorf("round trip %d: got %#v, want %#v", i, again[i], want[i])
+		}
+	}
+}
+
+func TestSQLParamJSONRejectsInvalid(t *testing.T) {
+	for _, input := range []string{`"Other"`, `{"Other":1}`, `{"Int":"x"}`, `{"String":"a","Int":1}`, `5`, `{}`} {
+		var p SQLParam
+		if err := json.Unmarshal([]byte(input), &p); err == nil {
+			t.Errorf("expected error for %s", input)
+		}
+	}
+}
+
+func TestGeneratedSQLWithoutParamsStillParses(t *testing.T) {
+	var g GeneratedSQL
+	if err := json.Unmarshal([]byte(`{"main_query":"SELECT 1","eager_queries":[]}`), &g); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if g.MainQuery != "SELECT 1" || len(g.MainParams) != 0 || len(g.EagerParams) != 0 {
+		t.Errorf("unexpected result: %#v", g)
+	}
 }

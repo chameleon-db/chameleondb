@@ -1,14 +1,34 @@
-use crate::ast::Schema;
+use crate::ast::{Entity, Schema};
 use crate::query::{
     Query, FilterExpr, FilterCondition, FilterValue,
-    ComparisonOp, LogicalOp, SortDirection,
+    ComparisonOp, LogicalOp, SortDirection, OrderByClause, FieldPath,
 };
-use super::naming::entity_to_table;
+use super::naming::{entity_to_table, quote_ident};
 use serde::{Deserialize, Serialize};
+
+/// Character used to escape LIKE wildcards in user values.
+const LIKE_ESCAPE: char = '\\';
+
+/// A value bound to a placeholder (`$1`, `$2`, ...) of a generated statement.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum SqlParam {
+    String(String),
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    Null,
+    /// The ids of the parent rows, supplied by the executor at run time
+    /// (bound as an array, used with `= ANY($n)`).
+    ParentIds,
+}
 
 /// Result of generating SQL for a query
 /// A single logical query can produce multiple SQL statements
 /// (main query + eager loading queries)
+///
+/// Statement text only contains placeholders; values travel in the
+/// parameter lists. The parameter lists default to empty so that older
+/// consumers of the JSON keep deserializing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GeneratedSQL {
     /// The main SELECT query
@@ -16,36 +36,40 @@ pub struct GeneratedSQL {
     /// Eager loading queries (one per include level)
     /// Each tuple is (relation_name, sql)
     pub eager_queries: Vec<(String, String)>,
+    /// Parameters of the main query, in placeholder order
+    #[serde(default)]
+    pub main_params: Vec<SqlParam>,
+    /// Parameters of each eager query, parallel to `eager_queries`
+    #[serde(default)]
+    pub eager_params: Vec<Vec<SqlParam>>,
+}
+
+/// Collects parameters while a statement is built.
+#[derive(Default)]
+struct Params(Vec<SqlParam>);
+
+impl Params {
+    /// Register a value and return its placeholder.
+    fn push(&mut self, value: SqlParam) -> String {
+        self.0.push(value);
+        format!("${}", self.0.len())
+    }
 }
 
 /// Generate SQL from a Query + Schema
 pub fn generate_sql(query: &Query, schema: &Schema) -> Result<GeneratedSQL, SqlGenError> {
-   let entity = schema.get_entity(&query.entity)
+    let entity = schema.get_entity(&query.entity)
         .ok_or_else(|| SqlGenError::UnknownEntity(query.entity.clone()))?;
 
-    let table_name = entity_to_table(&query.entity);
-
-    // Determine if we need JOINs (filters on relations)
-    let join_filters = extract_join_filters(query);
-    let needs_join = !join_filters.is_empty();
+    // Validate every identifier before any SQL is produced.
+    validate_query(query, entity, schema)?;
 
     // Build main query
-    let main_query = build_main_query(
-        &table_name,
-        &query.entity,
-        entity,
-        &query.filters,
-        &join_filters,
-        needs_join,
-        &query.order_by,
-        query.limit,
-        query.offset,
-        &query.select_fields,
-        schema,
-    )?;
+    let mut params = Params::default();
+    let main_query = build_main_query(query, entity, schema, &mut params)?;
 
     // Build eager loading queries
-    let eager_queries = build_eager_queries(
+    let (eager_queries, eager_params) = build_eager_queries(
         &query.entity,
         &query.includes,
         schema,
@@ -54,8 +78,119 @@ pub fn generate_sql(query: &Query, schema: &Schema) -> Result<GeneratedSQL, SqlG
     Ok(GeneratedSQL {
         main_query,
         eager_queries,
+        main_params: params.0,
+        eager_params,
     })
 }
+
+// ─── VALIDATION ───
+
+fn table_for(entity_name: &str) -> Result<String, SqlGenError> {
+    let table = entity_to_table(entity_name);
+    quote_ident(&table).ok_or(SqlGenError::InvalidIdentifier(table))
+}
+
+fn quote(name: &str) -> Result<String, SqlGenError> {
+    quote_ident(name).ok_or_else(|| SqlGenError::InvalidIdentifier(name.to_string()))
+}
+
+fn require_field<'a>(entity: &'a Entity, field: &str) -> Result<&'a crate::ast::Field, SqlGenError> {
+    entity.fields.get(field).ok_or_else(|| SqlGenError::UnknownField {
+        entity: entity.name.clone(),
+        field: field.to_string(),
+    })
+}
+
+fn require_relation<'a>(
+    entity: &'a Entity,
+    relation: &str,
+) -> Result<&'a crate::ast::Relation, SqlGenError> {
+    entity.relations.get(relation).ok_or_else(|| SqlGenError::UnknownRelation {
+        entity: entity.name.clone(),
+        relation: relation.to_string(),
+    })
+}
+
+fn require_entity<'a>(schema: &'a Schema, name: &str) -> Result<&'a Entity, SqlGenError> {
+    schema.get_entity(name).ok_or_else(|| SqlGenError::UnknownEntity(name.to_string()))
+}
+
+/// Validate a filter path against the schema.
+/// Supported shapes: `field` and `relation.field`.
+fn validate_field_path(
+    path: &FieldPath,
+    entity: &Entity,
+    schema: &Schema,
+) -> Result<(), SqlGenError> {
+    let rendered = path.segments.join(".");
+    match path.segments.as_slice() {
+        [field] => {
+            require_field(entity, field)?;
+            Ok(())
+        }
+        [relation, field] => {
+            let rel = require_relation(entity, relation)?;
+            let target = require_entity(schema, &rel.target_entity)?;
+            require_field(target, field)?;
+            Ok(())
+        }
+        [] => Err(SqlGenError::InvalidPath(rendered)),
+        _ => {
+            // Every segment must still exist; the depth is what is unsupported.
+            let mut current = entity;
+            for relation in &path.segments[..path.segments.len() - 1] {
+                let rel = require_relation(current, relation)?;
+                current = require_entity(schema, &rel.target_entity)?;
+            }
+            require_field(current, &path.segments[path.segments.len() - 1])?;
+            Err(SqlGenError::UnsupportedPath(rendered))
+        }
+    }
+}
+
+fn validate_include(
+    path: &[String],
+    entity: &Entity,
+    schema: &Schema,
+) -> Result<(), SqlGenError> {
+    if path.is_empty() {
+        return Err(SqlGenError::InvalidPath(String::new()));
+    }
+    let mut current = entity;
+    for relation in path {
+        let rel = require_relation(current, relation)?;
+        current = require_entity(schema, &rel.target_entity)?;
+    }
+    Ok(())
+}
+
+fn validate_filter(expr: &FilterExpr, entity: &Entity, schema: &Schema) -> Result<(), SqlGenError> {
+    match expr {
+        FilterExpr::Condition(cond) => validate_field_path(&cond.field, entity, schema),
+        FilterExpr::Binary { left, right, .. } => {
+            validate_filter(left, entity, schema)?;
+            validate_filter(right, entity, schema)
+        }
+    }
+}
+
+fn validate_query(query: &Query, entity: &Entity, schema: &Schema) -> Result<(), SqlGenError> {
+    for field in &query.select_fields {
+        require_field(entity, field)?;
+    }
+    for filter in &query.filters {
+        validate_filter(filter, entity, schema)?;
+    }
+    for clause in &query.order_by {
+        require_field(entity, &clause.field)?;
+    }
+    for include in &query.includes {
+        validate_include(&include.path, entity, schema)?;
+    }
+    Ok(())
+}
+
+// ─── MAIN QUERY ───
 
 /// Extract filters that target relations (e.g., "orders.total")
 fn extract_join_filters(query: &Query) -> Vec<&FilterExpr> {
@@ -76,22 +211,19 @@ fn filter_expr_is_nested(expr: &FilterExpr) -> bool {
 
 /// Build the main SELECT query
 fn build_main_query(
-    table_name: &str,
-    entity_name: &str,
-    entity: &crate::ast::Entity,
-    filters: &[FilterExpr],
-    join_filters: &[&FilterExpr],
-    needs_join: bool,
-    order_by: &[crate::query::OrderByClause],
-    limit: Option<u64>,
-    offset: Option<u64>,
-    select_fields: &[String],
+    query: &Query,
+    entity: &Entity,
     schema: &Schema,
+    params: &mut Params,
 ) -> Result<String, SqlGenError> {
+    let table_name = table_for(&query.entity)?;
+    let join_filters = extract_join_filters(query);
+    let needs_join = !join_filters.is_empty();
+
     let mut parts: Vec<String> = Vec::new();
 
     // SELECT
-    let columns = build_select_columns(table_name, entity, needs_join, select_fields);  // ← PASS NEW PARAM
+    let columns = build_select_columns(&table_name, entity, needs_join, &query.select_fields)?;
     let distinct = if needs_join { "DISTINCT " } else { "" };
     parts.push(format!("SELECT {}{}", distinct, columns));
 
@@ -100,29 +232,28 @@ fn build_main_query(
 
     // JOINs (for relation filters)
     if needs_join {
-        let joins = build_joins(entity_name, join_filters, schema)?;
+        let joins = build_joins(entity, &join_filters, schema)?;
         parts.push(joins);
     }
 
     // WHERE
-    let where_clause = build_where(filters, table_name, needs_join, schema, entity_name)?;
+    let where_clause = build_where(&query.filters, &table_name, needs_join, entity, params)?;
     if !where_clause.is_empty() {
         parts.push(format!("WHERE {}", where_clause));
     }
 
     // ORDER BY
-    if !order_by.is_empty() {
-        let order = build_order_by(order_by, table_name, needs_join);
-        parts.push(order);
+    if !query.order_by.is_empty() {
+        parts.push(build_order_by(&query.order_by, &table_name, needs_join)?);
     }
 
     // LIMIT
-    if let Some(limit) = limit {
+    if let Some(limit) = query.limit {
         parts.push(format!("LIMIT {}", limit));
     }
 
     // OFFSET
-    if let Some(offset) = offset {
+    if let Some(offset) = query.offset {
         parts.push(format!("OFFSET {}", offset));
     }
 
@@ -134,44 +265,36 @@ fn build_main_query(
 /// Otherwise, select only specified fields
 fn build_select_columns(
     table_name: &str,
-    entity: &crate::ast::Entity,
+    entity: &Entity,
     qualify: bool,
-    select_fields: &[String],  // ← NEW PARAMETER
-) -> String {
-    let columns: Vec<String> = if select_fields.is_empty() {
-        // SELECT * - all fields (backward compatible)
-        entity.fields.keys()
-            .map(|name| {
-                if qualify {
-                    format!("{}.{}", table_name, name)
-                } else {
-                    name.clone()
-                }
-            })
-            .collect()
+    select_fields: &[String],
+) -> Result<String, SqlGenError> {
+    let names: Vec<&String> = if select_fields.is_empty() {
+        entity.fields.keys().collect()
     } else {
-        // SELECT specific fields (NEW BEHAVIOR)
-        select_fields.iter()
-            .map(|name| {
-                if qualify {
-                    format!("{}.{}", table_name, name)
-                } else {
-                    name.clone()
-                }
-            })
-            .collect()
+        select_fields.iter().collect()
     };
 
-    columns.join(", ")
+    let columns = names.into_iter()
+        .map(|name| {
+            let column = quote(name)?;
+            Ok(if qualify {
+                format!("{}.{}", table_name, column)
+            } else {
+                column
+            })
+        })
+        .collect::<Result<Vec<String>, SqlGenError>>()?;
+
+    Ok(columns.join(", "))
 }
 
 /// Build JOIN clauses for relation filters
 fn build_joins(
-    entity_name: &str,
+    entity: &Entity,
     join_filters: &[&FilterExpr],
     schema: &Schema,
 ) -> Result<String, SqlGenError> {
-    let entity = schema.get_entity(entity_name).unwrap();
     let mut joins = Vec::new();
     let mut joined_relations: Vec<String> = Vec::new();
 
@@ -184,24 +307,21 @@ fn build_joins(
     joined_relations.dedup();
 
     for rel_name in &joined_relations {
-        let relation = entity.relations.get(rel_name)
-            .ok_or_else(|| SqlGenError::UnknownRelation {
-                entity: entity_name.to_string(),
-                relation: rel_name.clone(),
-            })?;
+        let relation = require_relation(entity, rel_name)?;
+        require_entity(schema, &relation.target_entity)?;
 
-        let target_table = entity_to_table(&relation.target_entity);
-        let source_table = entity_to_table(entity_name);
+        let target_table = table_for(&relation.target_entity)?;
+        let source_table = table_for(&entity.name)?;
 
         let fk = relation.foreign_key.as_ref()
             .ok_or_else(|| SqlGenError::MissingForeignKey {
-                entity: entity_name.to_string(),
+                entity: entity.name.clone(),
                 relation: rel_name.clone(),
             })?;
 
         joins.push(format!(
-            "INNER JOIN {} ON {}.{} = {}.id",
-            target_table, target_table, fk, source_table
+            "INNER JOIN {} ON {}.{} = {}.\"id\"",
+            target_table, target_table, quote(fk)?, source_table
         ));
     }
 
@@ -228,15 +348,11 @@ fn build_where(
     filters: &[FilterExpr],
     table_name: &str,
     qualify: bool,
-    schema: &Schema,
-    entity_name: &str,
+    entity: &Entity,
+    params: &mut Params,
 ) -> Result<String, SqlGenError> {
-    if filters.is_empty() {
-        return Ok(String::new());
-    }
-
     let conditions: Vec<String> = filters.iter()
-        .map(|f| filter_expr_to_sql(f, table_name, qualify, schema, entity_name))
+        .map(|f| filter_expr_to_sql(f, table_name, qualify, entity, params))
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(conditions.join(" AND "))
@@ -247,16 +363,16 @@ fn filter_expr_to_sql(
     expr: &FilterExpr,
     table_name: &str,
     qualify: bool,
-    schema: &Schema,
-    entity_name: &str,
+    entity: &Entity,
+    params: &mut Params,
 ) -> Result<String, SqlGenError> {
     match expr {
         FilterExpr::Condition(cond) => {
-            condition_to_sql(cond, table_name, qualify, schema, entity_name)
+            condition_to_sql(cond, table_name, qualify, entity, params)
         }
         FilterExpr::Binary { left, op, right } => {
-            let left_sql = filter_expr_to_sql(left, table_name, qualify, schema, entity_name)?;
-            let right_sql = filter_expr_to_sql(right, table_name, qualify, schema, entity_name)?;
+            let left_sql = filter_expr_to_sql(left, table_name, qualify, entity, params)?;
+            let right_sql = filter_expr_to_sql(right, table_name, qualify, entity, params)?;
             let op_sql = match op {
                 LogicalOp::And => "AND",
                 LogicalOp::Or => "OR",
@@ -271,37 +387,31 @@ fn condition_to_sql(
     cond: &FilterCondition,
     table_name: &str,
     qualify: bool,
-    schema: &Schema,
-    entity_name: &str,
+    entity: &Entity,
+    params: &mut Params,
 ) -> Result<String, SqlGenError> {
-    let field_sql = if cond.field.is_nested() {
-        // Nested: "orders.total" → "orders.total"
-        let rel_name = cond.field.root();
-        let entity = schema.get_entity(entity_name).unwrap();
-        let relation = entity.relations.get(rel_name)
-            .ok_or_else(|| SqlGenError::UnknownRelation {
-                entity: entity_name.to_string(),
-                relation: rel_name.to_string(),
-            })?;
-        let target_table = entity_to_table(&relation.target_entity);
-        let field_name = &cond.field.segments[1];
-        format!("{}.{}", target_table, field_name)
-    } else if qualify {
-        format!("{}.{}", table_name, cond.field.root())
-    } else {
-        cond.field.root().to_string()
+    let field_sql = match cond.field.segments.as_slice() {
+        [relation, field] => {
+            // Nested: "orders.total" → "orders"."total"
+            let relation = require_relation(entity, relation)?;
+            let target_table = table_for(&relation.target_entity)?;
+            format!("{}.{}", target_table, quote(field)?)
+        }
+        [field] if qualify => format!("{}.{}", table_name, quote(field)?),
+        [field] => quote(field)?,
+        _ => return Err(SqlGenError::UnsupportedPath(cond.field.segments.join("."))),
     };
 
-    let (op_sql, value_sql) = match (&cond.op, &cond.value) {
+    let value = filter_value_to_param(&cond.value);
+
+    match (&cond.op, &cond.value) {
         (ComparisonOp::Like, FilterValue::String(s)) => {
-            ("LIKE".to_string(), format!("'%{}%'", s))
+            let placeholder = params.push(SqlParam::String(like_pattern(s)));
+            Ok(format!("{} LIKE {} ESCAPE '{}'", field_sql, placeholder, LIKE_ESCAPE))
         }
-        (ComparisonOp::In, _) => {
-            // In is handled specially - value should be a list
-            // For now, placeholder
-            ("IN".to_string(), "($IN_VALUES)".to_string())
-        }
-        (op, value) => {
+        (ComparisonOp::Like, _) => Err(SqlGenError::UnsupportedOperator("Like".to_string())),
+        (ComparisonOp::In, _) => Err(SqlGenError::UnsupportedOperator("In".to_string())),
+        (op, _) => {
             let op_str = match op {
                 ComparisonOp::Eq  => "=",
                 ComparisonOp::Neq => "!=",
@@ -309,57 +419,83 @@ fn condition_to_sql(
                 ComparisonOp::Gte => ">=",
                 ComparisonOp::Lt  => "<",
                 ComparisonOp::Lte => "<=",
-                _ => unreachable!(),
+                ComparisonOp::Like | ComparisonOp::In => {
+                    return Err(SqlGenError::UnsupportedOperator(format!("{:?}", op)))
+                }
             };
-            (op_str.to_string(), value_to_sql(value))
+            // Floats are bound as numeric so that comparing them with an
+            // integer column keeps the exact value instead of being narrowed
+            // to the column type.
+            let cast = if matches!(value, SqlParam::Float(_)) { "::numeric" } else { "" };
+            let placeholder = params.push(value);
+            Ok(format!("{} {} {}{}", field_sql, op_str, placeholder, cast))
         }
-    };
-
-    Ok(format!("{} {} {}", field_sql, op_sql, value_sql))
+    }
 }
 
-/// Convert a FilterValue to SQL literal
-fn value_to_sql(value: &FilterValue) -> String {
+/// Convert a filter value into a bound parameter.
+fn filter_value_to_param(value: &FilterValue) -> SqlParam {
     match value {
-        FilterValue::String(s) => format!("'{}'", s),
-        FilterValue::Int(n)    => n.to_string(),
-        FilterValue::Float(f)  => f.to_string(),
-        FilterValue::Bool(b)   => if *b { "true".to_string() } else { "false".to_string() },
-        FilterValue::Null      => "NULL".to_string(),
+        FilterValue::String(s) => SqlParam::String(s.clone()),
+        FilterValue::Int(n)    => SqlParam::Int(*n),
+        FilterValue::Float(f)  => SqlParam::Float(*f),
+        FilterValue::Bool(b)   => SqlParam::Bool(*b),
+        FilterValue::Null      => SqlParam::Null,
     }
+}
+
+/// Build a "contains" pattern: wildcards and the escape character in the
+/// value are escaped so they match literally.
+pub(super) fn like_pattern(value: &str) -> String {
+    let mut pattern = String::with_capacity(value.len() + 2);
+    pattern.push('%');
+    for ch in value.chars() {
+        if ch == '%' || ch == '_' || ch == LIKE_ESCAPE {
+            pattern.push(LIKE_ESCAPE);
+        }
+        pattern.push(ch);
+    }
+    pattern.push('%');
+    pattern
 }
 
 /// Build ORDER BY clause
 fn build_order_by(
-    order_by: &[crate::query::OrderByClause],
+    order_by: &[OrderByClause],
     table_name: &str,
     qualify: bool,
-) -> String {
-    let clauses: Vec<String> = order_by.iter()
+) -> Result<String, SqlGenError> {
+    let clauses = order_by.iter()
         .map(|o| {
+            let column = quote(&o.field)?;
             let field = if qualify {
-                format!("{}.{}", table_name, o.field)
+                format!("{}.{}", table_name, column)
             } else {
-                o.field.clone()
+                column
             };
             let dir = match o.direction {
                 SortDirection::Asc  => "ASC",
                 SortDirection::Desc => "DESC",
             };
-            format!("{} {}", field, dir)
+            Ok(format!("{} {}", field, dir))
         })
-        .collect();
+        .collect::<Result<Vec<String>, SqlGenError>>()?;
 
-    format!("ORDER BY {}", clauses.join(", "))
+    Ok(format!("ORDER BY {}", clauses.join(", ")))
 }
+
+// ─── EAGER QUERIES ───
+
+type EagerQueries = (Vec<(String, String)>, Vec<Vec<SqlParam>>);
 
 /// Build eager loading queries
 fn build_eager_queries(
     root_entity: &str,
     includes: &[crate::query::IncludePath],
     schema: &Schema,
-) -> Result<Vec<(String, String)>, SqlGenError> {
+) -> Result<EagerQueries, SqlGenError> {
     let mut queries = Vec::new();
+    let mut params = Vec::new();
     let mut processed: Vec<String> = Vec::new();
 
     for include in includes {
@@ -369,11 +505,12 @@ fn build_eager_queries(
             "",
             schema,
             &mut queries,
+            &mut params,
             &mut processed,
         )?;
     }
 
-    Ok(queries)
+    Ok((queries, params))
 }
 
 /// Build a single eager loading query for a given path
@@ -383,6 +520,7 @@ fn build_eager_query_for_path(
     parent_path: &str,
     schema: &Schema,
     queries: &mut Vec<(String, String)>,
+    params: &mut Vec<Vec<SqlParam>>,
     processed: &mut Vec<String>,
 ) -> Result<(), SqlGenError> {
     if path.is_empty() {
@@ -396,57 +534,37 @@ fn build_eager_query_for_path(
         format!("{}.{}", parent_path, rel_name)
     };
 
-    // Skip if already processed
-    if processed.contains(&full_path) {
-        // But continue processing deeper paths
-        if path.len() > 1 {
-            let entity = schema.get_entity(current_entity).unwrap();
-            let relation = entity.relations.get(rel_name).unwrap();
-            return build_eager_query_for_path(
-                &relation.target_entity,
-                &path[1..],
-                &full_path,
-                schema,
-                queries,
-                processed,
-            );
-        }
-        return Ok(());
+    let entity = require_entity(schema, current_entity)?;
+    let relation = require_relation(entity, rel_name)?;
+
+    // Skip if already processed, but continue processing deeper paths
+    if !processed.contains(&full_path) {
+        let target_entity = require_entity(schema, &relation.target_entity)?;
+        let target_table = table_for(&relation.target_entity)?;
+
+        let fk = relation.foreign_key.as_ref()
+            .ok_or_else(|| SqlGenError::MissingForeignKey {
+                entity: current_entity.to_string(),
+                relation: rel_name.clone(),
+            })?;
+
+        // Build columns
+        let columns = target_entity.fields.keys()
+            .map(|name| quote(name))
+            .collect::<Result<Vec<String>, SqlGenError>>()?;
+
+        // Parent ids are bound as one array parameter
+        let sql = format!(
+            "SELECT {}\nFROM {}\nWHERE {} = ANY($1)",
+            columns.join(", "),
+            target_table,
+            quote(fk)?,
+        );
+
+        queries.push((full_path.clone(), sql));
+        params.push(vec![SqlParam::ParentIds]);
+        processed.push(full_path.clone());
     }
-
-    let entity = schema.get_entity(current_entity)
-        .ok_or_else(|| SqlGenError::UnknownEntity(current_entity.to_string()))?;
-
-    let relation = entity.relations.get(rel_name)
-        .ok_or_else(|| SqlGenError::UnknownRelation {
-            entity: current_entity.to_string(),
-            relation: rel_name.clone(),
-        })?;
-
-    let target_entity = schema.get_entity(&relation.target_entity)
-        .ok_or_else(|| SqlGenError::UnknownEntity(relation.target_entity.clone()))?;
-
-    let target_table = entity_to_table(&relation.target_entity);
-
-    let fk = relation.foreign_key.as_ref()
-        .ok_or_else(|| SqlGenError::MissingForeignKey {
-            entity: current_entity.to_string(),
-            relation: rel_name.clone(),
-        })?;
-
-    // Build columns
-    let columns: Vec<String> = target_entity.fields.keys().cloned().collect();
-
-    // Generate eager query with placeholder for IN clause
-    let sql = format!(
-        "SELECT {}\nFROM {}\nWHERE {} IN ($PARENT_IDS)",
-        columns.join(", "),
-        target_table,
-        fk,
-    );
-
-    queries.push((full_path.clone(), sql));
-    processed.push(full_path.clone());
 
     // Process deeper paths
     if path.len() > 1 {
@@ -456,6 +574,7 @@ fn build_eager_query_for_path(
             &full_path,
             schema,
             queries,
+            params,
             processed,
         )?;
     }
@@ -468,7 +587,12 @@ fn build_eager_query_for_path(
 pub enum SqlGenError {
     UnknownEntity(String),
     UnknownRelation { entity: String, relation: String },
+    UnknownField { entity: String, field: String },
     MissingForeignKey { entity: String, relation: String },
+    InvalidIdentifier(String),
+    InvalidPath(String),
+    UnsupportedPath(String),
+    UnsupportedOperator(String),
 }
 
 impl std::fmt::Display for SqlGenError {
@@ -478,8 +602,18 @@ impl std::fmt::Display for SqlGenError {
                 write!(f, "Unknown entity: {}", name),
             SqlGenError::UnknownRelation { entity, relation } =>
                 write!(f, "Unknown relation '{}' in entity '{}'", relation, entity),
+            SqlGenError::UnknownField { entity, field } =>
+                write!(f, "Unknown field '{}' in entity '{}'", field, entity),
             SqlGenError::MissingForeignKey { entity, relation } =>
                 write!(f, "Missing foreign key for relation '{}' in '{}'", relation, entity),
+            SqlGenError::InvalidIdentifier(_) =>
+                write!(f, "Invalid identifier"),
+            SqlGenError::InvalidPath(path) =>
+                write!(f, "Invalid field path '{}'", path),
+            SqlGenError::UnsupportedPath(path) =>
+                write!(f, "Unsupported field path '{}': only 'field' and 'relation.field' are supported", path),
+            SqlGenError::UnsupportedOperator(op) =>
+                write!(f, "Operator '{}' is not supported for this value", op),
         }
     }
 }
