@@ -6,7 +6,11 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 ---
 
-## [Unreleased] - 2026-11
+## [Unreleased]
+
+---
+
+## [1.1.0-alpha] - 2026-11
 
 ### Security
 - Hardened query and mutation generation. See GHSA-2r6g-424r-6xmr.
@@ -16,7 +20,7 @@ and this project adheres to Semantic Versioning (pre-1.0).
 - Float filter values are bound as `numeric`, so comparisons with integer columns keep their exact value.
 - Added `engine.QuoteIdent` for validating and quoting identifiers.
 
-## [Unreleased]
+## [1.1.0-alpha] - 2026-11
 
 ### Added
 - Enforced vault-based schema loading model for the engine.
