@@ -1,0 +1,24 @@
+name: Feature request
+description: Propose an improvement
+labels: ["type:feature", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way? Describe the situation, not only the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you use or considered
+  - type: textarea
+    id: criteria
+    attributes:
+      label: How would we know it works?
+      description: Observable acceptance criteria, ideally Given / When / Then.

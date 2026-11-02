@@ -1,5 +1,7 @@
-use crate::ast::*;
-use std::collections::HashMap;
+use crate::ast::{
+    BackendAnnotation, DefaultValue, Entity, EntityItem, Field, FieldModifier, FieldType,
+    Relation, RelationKind, Schema,
+};
 
 grammar;
 

@@ -4,9 +4,6 @@ use crate::error::{ChameleonError, ParseErrorDetail};
 // Incluir el módulo parser generado por lalrpop
 #[allow(clippy::all)]
 pub mod schema {
-    use crate::ast::{EntityItem, FieldModifier};
-    use crate::ast::*;
-    
     include!(concat!(env!("OUT_DIR"), "/parser/schema.rs"));
 }
 

@@ -1,0 +1,28 @@
+# CODEOWNERS
+# Official docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Repo owned by the @chameleon-db organization.
+* @chameleon-db/core
+
+# --- Critical paths (listed explicitly for visibility) ---
+
+# Infrastructure and CI/CD
+/.github/            @chameleon-db/core
+/.github/workflows/  @chameleon-db/core
+
+# Rust core
+/chameleon-core/     @chameleon-db/core
+
+# Go CLI and runtime
+/chameleon/          @chameleon-db/core
+
+# Documentation
+/docs/               @chameleon-db/core
+/README.md           @chameleon-db/core
+/CHANGELOG.md        @chameleon-db/core
+/RELEASE.md          @chameleon-db/core
+
+# Distribution, examples and coverage config
+/dist/               @chameleon-db/core
+/examples/           @chameleon-db/core
+/codecov.yml         @chameleon-db/core
