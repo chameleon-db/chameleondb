@@ -182,7 +182,7 @@ mod tests {
         let migration = generate_migration(&schema).unwrap();
 
         assert_eq!(migration.statements.len(), 1);
-        assert!(migration.sql.contains("CREATE TABLE users"));
+        assert!(migration.sql.contains("CREATE TABLE IF NOT EXISTS users"));
         assert!(migration.sql.contains("id UUID PRIMARY KEY"));
         assert!(migration.sql.contains("email VARCHAR NOT NULL UNIQUE"));
     }
@@ -287,9 +287,9 @@ mod tests {
         assert_eq!(migration.statements.len(), 3);
 
         // Full SQL contains all tables
-        assert!(migration.sql.contains("CREATE TABLE users"));
-        assert!(migration.sql.contains("CREATE TABLE orders"));
-        assert!(migration.sql.contains("CREATE TABLE order_items"));
+        assert!(migration.sql.contains("CREATE TABLE IF NOT EXISTS users"));
+        assert!(migration.sql.contains("CREATE TABLE IF NOT EXISTS orders"));
+        assert!(migration.sql.contains("CREATE TABLE IF NOT EXISTS order_items"));
     }
 
     // ─── ANNOTATIONS DON'T AFFECT DDL ───
@@ -326,5 +326,69 @@ mod tests {
         // But fields are still generated
         assert!(migration.sql.contains("views INTEGER NOT NULL"));
         assert!(migration.sql.contains("sales NUMERIC NOT NULL"));
+    }
+
+    // ─── NON-DESTRUCTIVE GUARANTEES ───
+
+    #[test]
+    fn test_migration_never_emits_destructive_statements() {
+        let schema = test_schema();
+        let migration = generate_migration(&schema).unwrap();
+        let upper = migration.sql.to_uppercase();
+
+        for forbidden in ["DROP ", "TRUNCATE", "DELETE ", "ALTER ", "CASCADE"] {
+            assert!(
+                !upper.contains(forbidden),
+                "generated SQL must be create-only, found `{}` in:\n{}",
+                forbidden,
+                migration.sql
+            );
+        }
+    }
+
+    #[test]
+    fn test_every_create_table_is_idempotent() {
+        let schema = test_schema();
+        let migration = generate_migration(&schema).unwrap();
+
+        assert_eq!(migration.statements.len(), 3);
+        for (_, stmt) in &migration.statements {
+            assert!(
+                stmt.starts_with("CREATE TABLE IF NOT EXISTS "),
+                "statement must be idempotent: {}",
+                stmt
+            );
+        }
+    }
+
+    #[test]
+    fn test_output_is_deterministic() {
+        // Entities hold fields/relations in HashMaps; the generated script
+        // must not depend on iteration order.
+        let first = generate_migration(&test_schema()).unwrap().sql;
+        for _ in 0..50 {
+            assert_eq!(first, generate_migration(&test_schema()).unwrap().sql);
+        }
+    }
+
+    #[test]
+    fn test_primary_key_first_then_alphabetical() {
+        let mut schema = Schema::new();
+        let mut entity = Entity::new("Account".to_string());
+        for (name, pk) in [("zeta", false), ("id", true), ("alpha", false)] {
+            entity.add_field(Field {
+                name: name.to_string(),
+                field_type: FieldType::Int,
+                nullable: false, unique: false, primary_key: pk,
+                default: None, backend: None,
+            });
+        }
+        schema.add_entity(entity);
+
+        let sql = generate_migration(&schema).unwrap().sql;
+        let id = sql.find("id INTEGER").unwrap();
+        let alpha = sql.find("alpha INTEGER").unwrap();
+        let zeta = sql.find("zeta INTEGER").unwrap();
+        assert!(id < alpha && alpha < zeta, "unexpected column order:\n{}", sql);
     }
 }

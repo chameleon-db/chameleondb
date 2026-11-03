@@ -15,7 +15,13 @@ and this project adheres to Semantic Versioning (pre-1.0).
 ### Security
 - Hardened query and mutation generation. See GHSA-2r6g-424r-6xmr.
 
+### Fixed
+- **Migrations are no longer destructive.** `chameleon migrate --apply` used to emit `DROP TABLE IF EXISTS ... CASCADE` for every entity before recreating it, which deleted all data in those tables. The generated script is now create-only: one `CREATE TABLE IF NOT EXISTS` per entity, in dependency order, with no `DROP`, `TRUNCATE` or `ALTER`.
+
 ### Changed
+- **Behavior change:** because the script is create-only, tables that already exist are left untouched. Schema changes to existing tables (new columns, type changes) are not applied by `migrate` yet and must be applied manually. Applying differences is planned work.
+- Generated DDL is deterministic: columns are ordered primary key first, then alphabetically, and constraints are sorted, so the same schema always produces the same SQL.
+- `migrate` now says that `backup_on_migrate` is not implemented instead of printing "Creating backup...".
 - Hardened the mutation path: table and column names in insert, update and delete are validated against the schema and quoted. Delete filters now reject unknown fields with `UnknownFieldError` before reaching the database.
 - Float filter values are bound as `numeric`, so comparisons with integer columns keep their exact value.
 - Added `engine.QuoteIdent` for validating and quoting identifiers.
