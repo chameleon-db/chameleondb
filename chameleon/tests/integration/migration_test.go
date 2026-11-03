@@ -23,7 +23,7 @@ func TestMigrationCreatesAllTables(t *testing.T) {
 	}
 	defer conn.Close(ctx)
 
-	tables := []string{"users", "orders", "order_items"}
+	tables := []string{"users", "orders", "order_items", "posts"}
 	for _, table := range tables {
 		var exists bool
 		err := conn.QueryRow(ctx, `

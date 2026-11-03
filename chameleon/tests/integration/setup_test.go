@@ -101,7 +101,7 @@ func dropAllTables(t *testing.T, ctx context.Context, config engine.ConnectorCon
 	defer conn.Close(ctx)
 
 	// Drop tables in reverse dependency order
-	tables := []string{"order_items", "orders", "users"}
+	tables := []string{"order_items", "posts", "orders", "users"}
 	for _, table := range tables {
 		_, err := conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", table))
 		if err != nil {

@@ -2,7 +2,7 @@ use crate::ast::{Schema, Entity, RelationKind};
 use crate::sql::naming::entity_to_table;
 use super::type_map::{to_postgres_type, to_postgres_default};
 
-/// Full migration output
+/// Create-only migration output
 #[derive(Debug, Clone, PartialEq)]
 pub struct Migration {
     /// Complete DDL script ready to execute
@@ -11,7 +11,12 @@ pub struct Migration {
     pub statements: Vec<(String, String)>,
 }
 
-/// Generate a full migration from a validated schema
+/// Generate a create-only migration from a validated schema.
+///
+/// The script contains one `CREATE TABLE IF NOT EXISTS` per entity, in
+/// dependency order, and nothing else. It never emits `DROP`, `TRUNCATE` or
+/// `ALTER`: running it against a database that already has the tables is a
+/// no-op for those tables. Output is deterministic (stable column order).
 pub fn generate_migration(schema: &Schema) -> Result<Migration, MigrationError> {
     // 1. Resolve creation order (dependencies first)
     let order = resolve_creation_order(schema)?;
@@ -24,21 +29,13 @@ pub fn generate_migration(schema: &Schema) -> Result<Migration, MigrationError> 
         statements.push((entity_name.clone(), sql));
     }
 
-    // 3. Build full script with DROP statements first (in reverse order for FK safety)
-    let mut sql_parts = Vec::new();
-    
-    // Add DROP statements in reverse order (to handle FKs)
-    for entity_name in order.iter().rev() {
-        let table_name = entity_to_table(&entity_name);
-        sql_parts.push(format!("DROP TABLE IF EXISTS {} CASCADE;", table_name));
-    }
-    
-    // Add CREATE statements in order
-    for (_, stmt) in &statements {
-        sql_parts.push(stmt.clone());
-    }
-    
-    let sql = sql_parts.join("\n\n");
+    // 3. Build the script. It is create-only: it never drops, truncates or
+    //    alters anything. Tables that already exist are left untouched.
+    let sql = statements
+        .iter()
+        .map(|(_, stmt)| stmt.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
 
     Ok(Migration { sql, statements })
 }
@@ -49,8 +46,16 @@ fn generate_create_table(entity: &Entity, schema: &Schema) -> Result<String, Mig
     let mut columns = Vec::new();
     let mut constraints = Vec::new();
 
-    // Columns (skip relation-only fields, keep actual data fields)
-    for (_, field) in &entity.fields {
+    // Columns (skip relation-only fields, keep actual data fields).
+    // `fields` is a HashMap, so sort for deterministic output:
+    // primary key first, then alphabetical by name.
+    let mut sorted_fields: Vec<_> = entity.fields.values().collect();
+    sorted_fields.sort_by(|a, b| {
+        b.primary_key
+            .cmp(&a.primary_key)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    for field in sorted_fields {
         let pg_type = to_postgres_type(&field.field_type);
 
         let mut col = format!("    {} {}", field.name, pg_type);
@@ -114,12 +119,16 @@ fn generate_create_table(entity: &Entity, schema: &Schema) -> Result<String, Mig
         }
     }
 
+    // Stable constraint order (relations come from a HashMap)
+    constraints.sort();
+    constraints.dedup();
+
     // Build CREATE TABLE
     let mut all_parts = columns;
     all_parts.extend(constraints);
 
     Ok(format!(
-        "CREATE TABLE {} (\n{}\n);",
+        "CREATE TABLE IF NOT EXISTS {} (\n{}\n);",
         table_name,
         all_parts.join(",\n")
     ))

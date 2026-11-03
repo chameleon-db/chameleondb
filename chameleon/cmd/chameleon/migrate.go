@@ -306,6 +306,9 @@ Examples:
 		fmt.Println(migrationSQL)
 		fmt.Println("─────────────────────────────────────────────────")
 		fmt.Println()
+		printInfo("This migration is create-only: it never drops or alters data.")
+		printWarning("Tables that already exist are NOT modified. Changes to existing tables (new columns, type changes) are not applied yet; apply them manually.")
+		fmt.Println()
 
 		if dryRun || !applyMigration {
 			printInfo("Dry-run mode. Use --apply to execute migration.")
@@ -378,9 +381,10 @@ Examples:
 
 		printSuccess("Connected to database")
 
-		// Create backup before applying (if enabled)
+		// NOTE: backup_on_migrate is not implemented. The migration is
+		// create-only, but take your own backup before applying.
 		if cfg.Features.BackupOnMigrate {
-			printInfo("Creating backup...")
+			printWarning("backup_on_migrate is not implemented yet: no backup was created")
 		}
 
 		// Apply migration

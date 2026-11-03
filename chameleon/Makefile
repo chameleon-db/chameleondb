@@ -14,8 +14,9 @@ export CHAMELEON_TEST_DB_USER=$(TEST_DB_USER)
 export CHAMELEON_TEST_DB_PASS=$(TEST_DB_PASS)
 
 # Paths
-RUST_LIB_DIR := $(shell pwd)/../chameleon-core/target/release
-RUST_INCLUDE_DIR := $(shell pwd)/../chameleon-core/include
+RUST_LIB_DIR := ../chameleon-core/target/release
+RUST_INCLUDE_DIR := ../chameleon-core/include
+RUST_LIB_DIR_ABS := $(shell pwd)/$(RUST_LIB_DIR)
 CGO_TEST_LDFLAGS := -L$(RUST_LIB_DIR) -lchameleon
 CGO_TEST_CFLAGS := -I$(RUST_INCLUDE_DIR)
 UNIT_TEST_PACKAGES := $(shell go list ./... | grep -v '/tests/integration')
@@ -34,7 +35,7 @@ build: build-rust
 test: build-rust
 	CGO_LDFLAGS="$(CGO_TEST_LDFLAGS)" \
 	CGO_CFLAGS="$(CGO_TEST_CFLAGS)" \
-	LD_LIBRARY_PATH=$(RUST_LIB_DIR) \
+	LD_LIBRARY_PATH="$(RUST_LIB_DIR_ABS)" \
 	go test -v $(UNIT_TEST_PACKAGES) -count=1
 
 test-integration:
@@ -50,7 +51,7 @@ test-integration:
 	@echo "Running integration tests..."
 	CGO_LDFLAGS="$(CGO_TEST_LDFLAGS)" \
 	CGO_CFLAGS="$(CGO_TEST_CFLAGS)" \
-	LD_LIBRARY_PATH=$(RUST_LIB_DIR) \
+	LD_LIBRARY_PATH="$(RUST_LIB_DIR_ABS)" \
 	go test -v ./tests/integration/... -timeout 60s -count=1 || \
 	($(MAKE) docker-down && exit 1)
 
@@ -71,7 +72,7 @@ test-all:
 	@echo "Running all tests (unit + integration)..."
 	CGO_LDFLAGS="$(CGO_TEST_LDFLAGS)" \
 	CGO_CFLAGS="$(CGO_TEST_CFLAGS)" \
-	LD_LIBRARY_PATH=$(RUST_LIB_DIR) \
+	LD_LIBRARY_PATH="$(RUST_LIB_DIR_ABS)" \
 	go test -v ./... -timeout 60s -count=1 || \
 	($(MAKE) docker-down && exit 1)
 
