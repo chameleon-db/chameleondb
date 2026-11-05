@@ -52,6 +52,38 @@ pub enum TypeCheckError {
         annotation: String,
     },
 
+    // Constraints
+    #[error("Field '{field}' in '{entity}' is primary and cannot be nullable")]
+    NullablePrimaryKey {
+        entity: String,
+        field: String,
+    },
+
+    #[error("Field '{field}' in '{entity}' has vector dimension 0; dimension must be at least 1")]
+    InvalidVectorDimension {
+        entity: String,
+        field: String,
+    },
+
+    // Foreign keys
+    #[error("Relation '{relation}' in '{entity}' uses foreign key '{target}.{foreign_key}' of type '{fk_type}', but '{entity}' has primary key '{pk}' of type '{pk_type}'")]
+    ForeignKeyTypeMismatch {
+        entity: String,
+        relation: String,
+        target: String,
+        foreign_key: String,
+        fk_type: String,
+        pk: String,
+        pk_type: String,
+    },
+
+    #[error("Relation '{relation}' in '{entity}' is a has-many, which requires '{entity}' to have a primary key named 'id' (found '{primary_key}')")]
+    UnsupportedParentKey {
+        entity: String,
+        relation: String,
+        primary_key: String,
+    },
+
     // Circular dependencies
     #[error("Circular dependency detected: {cycle:?}")]
     CircularDependency {

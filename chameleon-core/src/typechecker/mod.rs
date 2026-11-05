@@ -89,6 +89,7 @@ pub fn type_check(schema: &Schema) -> TypeCheckResult {
 
     // Constraints
     errors.extend(constraints::check_primary_keys(schema));
+    errors.extend(constraints::check_field_modifiers(schema));
     errors.extend(constraints::check_annotations(schema));
     errors.extend(constraints::check_defaults(schema));
 
@@ -447,5 +448,83 @@ mod tests {
         assert!(report.contains("❌"));
         assert!(report.contains("2"));  // 2 errors
         println!("{}", report);
+    }
+
+    // ─── SCHEMA CHECKS FROM PARSED SOURCE ───
+
+    fn check_source(src: &str) -> Vec<TypeCheckError> {
+        let schema = crate::parse_schema(src).expect("schema should parse");
+        type_check(&schema).errors
+    }
+
+    #[test]
+    fn test_primary_key_cannot_be_nullable() {
+        let errors = check_source("entity U {\n    id: uuid primary nullable,\n}\n");
+        assert!(errors.iter().any(|e| matches!(e, TypeCheckError::NullablePrimaryKey { .. })));
+    }
+
+    #[test]
+    fn test_vector_dimension_zero_is_rejected() {
+        let errors = check_source("entity U {\n    id: uuid primary,\n    e: vector(0),\n    f: [vector(0)],\n}\n");
+        let count = errors.iter().filter(|e| matches!(e, TypeCheckError::InvalidVectorDimension { .. })).count();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_vector_dimension_positive_is_accepted() {
+        let errors = check_source("entity U {\n    id: uuid primary,\n    e: vector(384) @vector,\n}\n");
+        assert!(errors.is_empty(), "{:?}", errors);
+    }
+
+    #[test]
+    fn test_foreign_key_type_mismatch() {
+        let errors = check_source(
+            "entity U {\n    id: uuid primary,\n    os: [O] via u_id,\n}\nentity O {\n    id: uuid primary,\n    u_id: string,\n}\n",
+        );
+        assert!(errors.iter().any(|e| matches!(e, TypeCheckError::ForeignKeyTypeMismatch { .. })), "{:?}", errors);
+    }
+
+    #[test]
+    fn test_foreign_key_matching_type_is_accepted() {
+        let errors = check_source(
+            "entity U {\n    id: uuid primary,\n    os: [O] via u_id,\n}\nentity O {\n    id: uuid primary,\n    u_id: uuid,\n}\n",
+        );
+        assert!(errors.is_empty(), "{:?}", errors);
+    }
+
+    #[test]
+    fn test_has_many_parent_key_must_be_id() {
+        let errors = check_source(
+            "entity C {\n    code: string primary,\n    os: [O] via c_code,\n}\nentity O {\n    id: uuid primary,\n    c_code: string,\n}\n",
+        );
+        assert!(errors.iter().any(|e| matches!(e, TypeCheckError::UnsupportedParentKey { .. })), "{:?}", errors);
+    }
+
+    #[test]
+    fn test_non_id_primary_key_without_has_many_is_accepted() {
+        let errors = check_source("entity C {\n    code: string primary,\n}\n");
+        assert!(errors.is_empty(), "{:?}", errors);
+    }
+
+    #[test]
+    fn test_self_referential_has_many_is_accepted() {
+        let src = "entity Category {\n    id: uuid primary,\n    parent_id: uuid nullable,\n    parent: Category,\n    children: [Category] via parent_id,\n}\n";
+        let errors = check_source(src);
+        assert!(errors.is_empty(), "{:?}", errors);
+
+        let schema = crate::parse_schema(src).unwrap();
+        let migration = crate::generate_migration(&schema).unwrap();
+        assert!(
+            migration.sql.contains("FOREIGN KEY (parent_id) REFERENCES categorys(id)"),
+            "{}", migration.sql
+        );
+    }
+
+    #[test]
+    fn test_mutual_has_many_is_still_a_cycle() {
+        let errors = check_source(
+            "entity A {\n    id: uuid primary,\n    bs: [B] via a_id,\n    b_id: uuid,\n}\nentity B {\n    id: uuid primary,\n    a_id: uuid,\n    as_: [A] via b_id,\n}\n",
+        );
+        assert!(errors.iter().any(|e| matches!(e, TypeCheckError::CircularDependency { .. })), "{:?}", errors);
     }
 }

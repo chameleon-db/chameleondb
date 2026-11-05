@@ -8,6 +8,17 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 ## [Unreleased]
 
+### Fixed
+- Self-referential has-many relations (for example `children: [Category] via parent_id`) are no longer reported as a circular dependency. Cycles between two or more entities are still rejected.
+
+### Changed
+- `validate` now rejects, before `migrate` reaches PostgreSQL:
+  - a field that is both `primary` and `nullable`;
+  - `vector(0)` (also inside arrays);
+  - a has-many foreign key whose type differs from the parent's primary key type;
+  - a has-many whose parent primary key is not named `id`, since the generated foreign key and the query layer both reference `id`.
+  Schemas that failed in PostgreSQL for these reasons now fail earlier with a clearer message.
+
 ---
 
 ## [1.1.0-alpha] - 2026-11

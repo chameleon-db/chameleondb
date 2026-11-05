@@ -31,7 +31,39 @@ pub fn check_relations(schema: &Schema) -> Vec<TypeCheckError> {
                 }
             }
 
-            // 3. HasMany relations MUST have a foreign key
+            // 3. HasMany: parent key must be `id`, and the foreign key must have its type
+            if relation.kind == RelationKind::HasMany {
+                if let Some(fk) = &relation.foreign_key {
+                    let target_entity = schema.get_entity(&relation.target_entity).unwrap();
+                    let pk = entity.fields.values().find(|f| f.primary_key);
+
+                    if let Some(pk) = pk {
+                        if pk.name != "id" {
+                            errors.push(TypeCheckError::UnsupportedParentKey {
+                                entity: entity.name.clone(),
+                                relation: relation.name.clone(),
+                                primary_key: pk.name.clone(),
+                            });
+                        }
+
+                        if let Some(fk_field) = target_entity.fields.get(fk) {
+                            if fk_field.field_type != pk.field_type {
+                                errors.push(TypeCheckError::ForeignKeyTypeMismatch {
+                                    entity: entity.name.clone(),
+                                    relation: relation.name.clone(),
+                                    target: relation.target_entity.clone(),
+                                    foreign_key: fk.clone(),
+                                    fk_type: format!("{:?}", fk_field.field_type),
+                                    pk: pk.name.clone(),
+                                    pk_type: format!("{:?}", pk.field_type),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 4. HasMany relations MUST have a foreign key
             if relation.kind == RelationKind::HasMany && relation.foreign_key.is_none() {
                 errors.push(TypeCheckError::MissingForeignKey {
                     entity: entity.name.clone(),
@@ -78,7 +110,12 @@ fn dfs(
             }
             
             let target = &relation.target_entity;
-            
+
+            // A self-reference (e.g. Category.children) is a tree, not a cycle
+            if target == current {
+                continue;
+            }
+
             if !visited.contains(target) {
                 if let Some(cycle) = dfs(schema, target, visited, in_stack) {
                     return Some(cycle);
