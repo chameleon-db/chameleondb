@@ -10,6 +10,16 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 Paste under `## [Unreleased]` in CHANGELOG.md (all three PRs, so the patches do not conflict).
 
+[Unreleased]
+### Fixed
+- Deleting a record still referenced by children now returns ForeignKeyConstraintError (with the dependent table) instead of a misleading ForeignKeyError.
+- DELETE filters are emitted in a deterministic order.
+- SafetyError suggestions no longer mention nonexistent ForceUpdateAll/ForceDeleteAll.
+
+### Changed
+- Mutation `like`/`ilike` filters now mean "contains" (as in queries) and escape %, _ and \.
+- A nil filter value becomes IS NULL (eq) or IS NOT NULL (neq/ne); other operators with nil return an error.
+
 ## [v1.1.1] - 2026-11-06
 
 ### Fixed
