@@ -8,22 +8,39 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 ## [Unreleased]
 
-Paste under `## [Unreleased]` in CHANGELOG.md (all three PRs, so the patches do not conflict).
+## [v1.1.2] - 2026-11-06
 
-[Unreleased]
 ### Fixed
-- Deleting a record still referenced by children now returns ForeignKeyConstraintError (with the dependent table) instead of a misleading ForeignKeyError.
-- DELETE filters are emitted in a deterministic order.
-- SafetyError suggestions no longer mention nonexistent ForceUpdateAll/ForceDeleteAll.
+- Deleting a record that still has children now returns `ForeignKeyConstraintError` (with the dependent table) instead of a misleading `ForeignKeyError` that said the referenced record did not exist.
+- `DELETE` filters are emitted in a deterministic order, as in `UPDATE`.
+- `SafetyError` suggestions no longer mention `ForceUpdateAll` and `ForceDeleteAll`, which do not exist. They now say to use `Filter()`.
+- `chameleon status` looked only for `schema.cham` in the current directory, so projects created with `init` (schemas in `schemas/`) never showed whether the schema was up to date. It now reads `schema.paths` from `.chameleon.yml` and merges the files as `migrate` does.
+- `chameleon validate` and `chameleon check` with no file validate `schema.cham` if it exists and otherwise the project schemas, instead of failing on projects that use `schema.paths`.
+- `CHAMELEON_DEBUG` was defined but never read. The engine now honors it (`1`, `true` or `sql`; `trace`; `explain`), and so do mutations.
+- `.Debug()` on a query with `Include()` now prints the eager queries too, not only the main one. At trace level it adds the duration and row count of each.
+- The SQL of a query was generated twice per execution (two passes through the core library); it is now generated once.
 
 ### Changed
-- Mutation `like`/`ilike` filters now mean "contains" (as in queries) and escape %, _ and \.
-- A nil filter value becomes IS NULL (eq) or IS NOT NULL (neq/ne); other operators with nil return an error.
+- **Behavior change:** in mutations, `like` and `ilike` filters now mean "contains", as in the query builder: `Filter("name", "like", "ana")` matches `%ana%`. `%`, `_` and `\` in the value are escaped and match literally. Code that passed its own `%` pattern must drop the wildcards.
+- **Behavior change:** a `nil` filter value in a mutation becomes `IS NULL` (`eq`) or `IS NOT NULL` (`neq`, `ne`). Before, it produced `= NULL`, which never matches. Any other operator with `nil` returns an error.
+- Debug output redacts the values of columns whose name contains `password`, `passwd`, `secret`, `token`, `api_key`, `apikey`, `private_key`, `credential`, `hash` or `salt`, for queries and mutations (`$1 = [REDACTED]`). Other values are still printed. A parameter whose column cannot be determined is redacted too.
+- Mutation debug output goes through the engine's debug context (its writer and level) instead of printing directly to stdout.
+- The default `.chameleon/.gitignore` also ignores `vault/mode_auth.json`, the verifier of the mode password. The rest of `vault/` stays versioned. `config auth set-password` adds the rule to `.gitignore` files created by earlier versions. A file that was already committed stays tracked until you run `git rm --cached .chameleon/vault/mode_auth.json`.
+- `chameleon version` prints one line; `--verbose` no longer shows separate CLI and core versions, because both came from the same place.
+- Debug traces of the FFI layer use `CHAMELEON_DEBUG` instead of `DEBUG=1`.
+
+### Removed
+- Dead duplicate error types in `pkg/engine/mutation/errors.go` (the engine's own definitions are the ones in use).
+
+### Added
+- Integration tests for `IS NULL` filters, `like`/`ilike` as "contains" with a literal `%`, and deleting a parent that still has children.
+- More unit tests for the CLI commands and the debug output. `make test` now prints a summary of the failing packages and tests.
 
 ## [v1.1.1] - 2026-11-06
 
 ### Fixed
 - The error for a `uuid()` default on a non-uuid field now names `uuid()` instead of `uuid_v4()`.
+- Self-referential has-many relations (for example `children: [Category] via parent_id`) are no longer reported as a circular dependency. Cycles between two or more entities are still rejected.
 - `introspect` recognizes `timestamp without time zone`, the type PostgreSQL reports for the `TIMESTAMP` columns ChameleonDB itself creates. Before, those columns were introspected as `string`.
 - Journal: details and `duration_ms` are read back, so `journal migrations` shows the Version and Duration columns instead of empty ones.
 - Journal: error messages are no longer cut at the first space in `journal errors` and `journal last`.
@@ -32,6 +49,12 @@ Paste under `## [Unreleased]` in CHANGELOG.md (all three PRs, so the patches do 
 - `journal` output truncates by characters, not bytes, so a multi-byte character is never split.
 
 ### Changed
+- `validate` now rejects, before `migrate` reaches PostgreSQL:
+  - a field that is both `primary` and `nullable`;
+  - `vector(0)` (also inside arrays);
+  - a has-many foreign key whose type differs from the parent's primary key type;
+  - a has-many whose parent primary key is not named `id`, since the generated foreign key and the query layer both reference `id`.
+  Schemas that failed in PostgreSQL for these reasons now fail earlier with a clearer message.
 - `introspect` adds a `// WARNING` comment to every column whose PostgreSQL type has no ChameleonDB equivalent (`jsonb`, arrays, `bytea`, `time`, ...) instead of silently using `string`.
 - `journal last` reads back across days when today has fewer entries than requested. `journal migrations` and `journal errors` cover all days.
 - `journal errors` lists every failed operation: status `error`, `failed`, `denied` or `aborted_readonly`, or any entry with an error message.
@@ -43,19 +66,6 @@ Paste under `## [Unreleased]` in CHANGELOG.md (all three PRs, so the patches do 
 
 ### Documentation
 - README: `default uuid()` needs PostgreSQL 13 or newer (`gen_random_uuid()`), or `pgcrypto` on older versions.
-
-## [Unreleased]
-
-### Fixed
-- Self-referential has-many relations (for example `children: [Category] via parent_id`) are no longer reported as a circular dependency. Cycles between two or more entities are still rejected.
-
-### Changed
-- `validate` now rejects, before `migrate` reaches PostgreSQL:
-  - a field that is both `primary` and `nullable`;
-  - `vector(0)` (also inside arrays);
-  - a has-many foreign key whose type differs from the parent's primary key type;
-  - a has-many whose parent primary key is not named `id`, since the generated foreign key and the query layer both reference `id`.
-  Schemas that failed in PostgreSQL for these reasons now fail earlier with a clearer message.
 
 ---
 
