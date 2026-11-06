@@ -51,7 +51,7 @@ That direction is a plan, not a description of the current code. Read the [produ
 
 ### Prerequisites
 
-- PostgreSQL. Integration tests run against PostgreSQL 16; other versions are not yet verified.
+- PostgreSQL. Integration tests run against PostgreSQL 16; other versions are not yet verified. `default uuid()` uses `gen_random_uuid()`, which needs PostgreSQL 13 or newer (or the `pgcrypto` extension on older versions).
 - To build from source: Go 1.25.6 or newer, a stable Rust toolchain, a C compiler and `make`.
 
 ### Install (Linux and macOS)

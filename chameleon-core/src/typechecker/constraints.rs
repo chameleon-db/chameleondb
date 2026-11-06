@@ -137,7 +137,7 @@ pub fn check_defaults(schema: &Schema) -> Vec<TypeCheckError> {
                     entity: entity.name.clone(),
                     field: field.name.clone(),
                     field_type: format!("{:?}", field.field_type),
-                    function: "uuid_v4()".to_string(),
+                    function: "uuid()".to_string(),
                 }),
                 _ => errors.push(TypeCheckError::InvalidDefaultValue {
                     entity: entity.name.clone(),

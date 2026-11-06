@@ -12,6 +12,7 @@ pub struct TypeCheckResult {
     pub errors: Vec<TypeCheckError>,
 }
 
+
 impl TypeCheckResult {
     /// Returns true if the schema passed all checks
     pub fn is_valid(&self) -> bool {
@@ -526,5 +527,20 @@ mod tests {
             "entity A {\n    id: uuid primary,\n    bs: [B] via a_id,\n    b_id: uuid,\n}\nentity B {\n    id: uuid primary,\n    a_id: uuid,\n    as_: [A] via b_id,\n}\n",
         );
         assert!(errors.iter().any(|e| matches!(e, TypeCheckError::CircularDependency { .. })), "{:?}", errors);
+    }
+
+    #[test]
+    fn test_uuid_default_on_non_uuid_field_names_the_function() {
+        let errors = check_source("entity U {\n    id: uuid primary,\n    r: string default uuid(),\n}\n");
+        let message = errors.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(" | ");
+        assert!(message.contains("unsupported default function 'uuid()'"), "{}", message);
+    }
+
+    #[test]
+    fn test_defaults_accepted_for_each_scalar_type() {
+        let errors = check_source(
+            "entity U {\n    id: uuid primary default uuid(),\n    t: uuid default uuid_v4(),\n    s: string default \"x\",\n    i: int default -3,\n    d: decimal default 0.5,\n    f: float default 1,\n    b: bool default true,\n    c: timestamp default now(),\n}\n",
+        );
+        assert!(errors.is_empty(), "{:?}", errors);
     }
 }
