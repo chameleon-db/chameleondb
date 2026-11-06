@@ -262,7 +262,11 @@ func (e *Engine) Insert(entity string) InsertMutation {
 	if factory == nil {
 		return newInvalidInsertMutation(fmt.Errorf("no mutation factory registered"))
 	}
-	return factory.NewInsert(entity, e.schema, e.connector)
+	mutation := factory.NewInsert(entity, e.schema, e.connector)
+	if setter, ok := mutation.(interface{ SetDebugContext(*DebugContext) }); ok {
+		setter.SetDebugContext(e.Debug)
+	}
+	return mutation
 }
 
 // Update starts a new UPDATE mutation
@@ -278,7 +282,11 @@ func (e *Engine) Update(entity string) UpdateMutation {
 	if factory == nil {
 		return newInvalidUpdateMutation(fmt.Errorf("no mutation factory registered"))
 	}
-	return factory.NewUpdate(entity, e.schema, e.connector)
+	mutation := factory.NewUpdate(entity, e.schema, e.connector)
+	if setter, ok := mutation.(interface{ SetDebugContext(*DebugContext) }); ok {
+		setter.SetDebugContext(e.Debug)
+	}
+	return mutation
 }
 
 // Delete starts a new DELETE mutation
@@ -294,7 +302,11 @@ func (e *Engine) Delete(entity string) DeleteMutation {
 	if factory == nil {
 		return newInvalidDeleteMutation(fmt.Errorf("no mutation factory registered"))
 	}
-	return factory.NewDelete(entity, e.schema, e.connector)
+	mutation := factory.NewDelete(entity, e.schema, e.connector)
+	if setter, ok := mutation.(interface{ SetDebugContext(*DebugContext) }); ok {
+		setter.SetDebugContext(e.Debug)
+	}
+	return mutation
 }
 
 // ─────────────────────────────────────────────────────────────

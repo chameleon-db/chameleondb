@@ -295,7 +295,8 @@ func TestDebugLogParamsShowsParametersSeparately(t *testing.T) {
 
 	out := buf.String()
 	assert.Contains(t, out, `WHERE "name" = $1`)
-	assert.Contains(t, out, `$1 = String("o'brien")`)
+	assert.NotContains(t, out, "o'brien")
+	assert.Contains(t, out, `$1 = [REDACTED]`)
 }
 
 func TestDebugLogParamsRespectsLevel(t *testing.T) {

@@ -21,7 +21,7 @@ func TestFormatDebugParamsMasksSensitiveColumns(t *testing.T) {
 			t.Fatalf("sensitive value %q leaked:\n%s", leaked, out)
 		}
 	}
-	if !strings.Contains(out, "$2 = ***") || !strings.Contains(out, "$3 = ***") {
+	if !strings.Contains(out, "$2 = [REDACTED]") || !strings.Contains(out, "$3 = [REDACTED]") {
 		t.Fatalf("sensitive values should be masked, got:\n%s", out)
 	}
 }

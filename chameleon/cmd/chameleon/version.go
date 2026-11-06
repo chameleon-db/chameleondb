@@ -10,18 +10,12 @@ import (
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show ChameleonDB version",
-	Long:  "Display the current version of ChameleonDB CLI and core library",
+	Long:  "Display the current version of ChameleonDB",
 	Run: func(cmd *cobra.Command, args []string) {
 		eng := engine.NewEngineForCLI()
 		version := eng.Version()
 
 		fmt.Printf("ChameleonDB v%s\n", version)
-
-		if verbose {
-			fmt.Println("\nComponents:")
-			fmt.Printf("  CLI:  v%s\n", version)
-			fmt.Printf("  Core: v%s (Rust)\n", version)
-		}
 	},
 }
 

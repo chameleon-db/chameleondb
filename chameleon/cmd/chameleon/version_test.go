@@ -62,17 +62,11 @@ func TestVersionCommandVerbose(t *testing.T) {
 	io.Copy(&buf, r)
 	output := buf.String()
 
-	// Verify output contains version and components
+	// Verbose mode must not claim a separate CLI version.
 	if !strings.Contains(output, "ChameleonDB v") {
 		t.Errorf("Expected output to contain 'ChameleonDB v', got: %s", output)
 	}
-	if !strings.Contains(output, "Components:") {
-		t.Errorf("Expected verbose output to contain 'Components:', got: %s", output)
-	}
-	if !strings.Contains(output, "CLI:") {
-		t.Errorf("Expected verbose output to contain 'CLI:', got: %s", output)
-	}
-	if !strings.Contains(output, "Core:") {
-		t.Errorf("Expected verbose output to contain 'Core:', got: %s", output)
+	if strings.Contains(output, "CLI:") || strings.Contains(output, "Core:") {
+		t.Errorf("Expected one version line, got: %s", output)
 	}
 }

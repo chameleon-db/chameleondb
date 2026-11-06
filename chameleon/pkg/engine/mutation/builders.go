@@ -23,6 +23,7 @@ type InsertBuilder struct {
 
 	// debugLevel controls mutation debug verbosity.
 	debugLevel *engine.DebugLevel
+	debug      *engine.DebugContext
 }
 
 func NewInsertBuilder(schema *engine.Schema, connector *engine.Connector, entity string) *InsertBuilder {
@@ -65,8 +66,9 @@ func (ib *InsertBuilder) Execute(ctx context.Context) (*engine.InsertResult, err
 	}
 
 	if ib.shouldDebug() {
-		fmt.Printf("\n[SQL] INSERT %s\n%s\n", ib.entity, sql)
-		fmt.Print(formatDebugParams(sortedKeys(ib.values), orderedValues))
+		debug := ib.debugContext()
+		debug.LogMutationSQL("INSERT", ib.entity, sql)
+		debug.LogNamedParams(sortedKeys(ib.values), orderedValues)
 	}
 
 	// Execute via pgx
@@ -115,18 +117,26 @@ func (ib *InsertBuilder) Execute(ctx context.Context) (*engine.InsertResult, err
 	duration := time.Since(start)
 
 	if ib.shouldTrace() {
-		fmt.Printf("[TRACE] INSERT on %s: %v, 1 row\n", ib.entity, duration)
+		ib.debugContext().LogMutationTrace("INSERT", ib.entity, duration, 1)
 	}
 
 	return result, nil
 }
 
 func (ib *InsertBuilder) shouldDebug() bool {
-	return effectiveDebugLevel(ib.debugLevel) >= engine.DebugSQL
+	return ib.debugContext().Level >= engine.DebugSQL
 }
 
 func (ib *InsertBuilder) shouldTrace() bool {
-	return effectiveDebugLevel(ib.debugLevel) >= engine.DebugTrace
+	return ib.debugContext().Level >= engine.DebugTrace
+}
+
+func (ib *InsertBuilder) SetDebugContext(debug *engine.DebugContext) {
+	ib.debug = debug
+}
+
+func (ib *InsertBuilder) debugContext() *engine.DebugContext {
+	return effectiveDebugContext(ib.debug, ib.debugLevel)
 }
 
 func (ib *InsertBuilder) generateSQL() (string, []interface{}, error) {
@@ -188,6 +198,7 @@ type UpdateBuilder struct {
 
 	// debugLevel controls mutation debug verbosity.
 	debugLevel *engine.DebugLevel
+	debug      *engine.DebugContext
 	forceAll   bool
 }
 
@@ -243,9 +254,10 @@ func (ub *UpdateBuilder) Execute(ctx context.Context) (*engine.UpdateResult, err
 	}
 
 	if ub.shouldDebug() {
-		fmt.Printf("\n[SQL] UPDATE %s\n%s\n", ub.entity, sql)
+		debug := ub.debugContext()
+		debug.LogMutationSQL("UPDATE", ub.entity, sql)
 		labels := append(sortedKeys(ub.updates), filterLabels(ub.filters)...)
-		fmt.Print(formatDebugParams(labels, orderedValues))
+		debug.LogNamedParams(labels, orderedValues)
 	}
 
 	// Execute via pgx
@@ -279,7 +291,7 @@ func (ub *UpdateBuilder) Execute(ctx context.Context) (*engine.UpdateResult, err
 	duration := time.Since(start)
 
 	if ub.shouldTrace() {
-		fmt.Printf("[TRACE] UPDATE on %s: %v, %d rows\n", ub.entity, duration, len(records))
+		ub.debugContext().LogMutationTrace("UPDATE", ub.entity, duration, len(records))
 	}
 
 	return &engine.UpdateResult{
@@ -289,11 +301,19 @@ func (ub *UpdateBuilder) Execute(ctx context.Context) (*engine.UpdateResult, err
 }
 
 func (ub *UpdateBuilder) shouldDebug() bool {
-	return effectiveDebugLevel(ub.debugLevel) >= engine.DebugSQL
+	return ub.debugContext().Level >= engine.DebugSQL
 }
 
 func (ub *UpdateBuilder) shouldTrace() bool {
-	return effectiveDebugLevel(ub.debugLevel) >= engine.DebugTrace
+	return ub.debugContext().Level >= engine.DebugTrace
+}
+
+func (ub *UpdateBuilder) SetDebugContext(debug *engine.DebugContext) {
+	ub.debug = debug
+}
+
+func (ub *UpdateBuilder) debugContext() *engine.DebugContext {
+	return effectiveDebugContext(ub.debug, ub.debugLevel)
 }
 
 func (ub *UpdateBuilder) generateSQL() (string, []interface{}, error) {
@@ -374,6 +394,7 @@ type DeleteBuilder struct {
 
 	// debugLevel controls mutation debug verbosity.
 	debugLevel *engine.DebugLevel
+	debug      *engine.DebugContext
 }
 
 func NewDeleteBuilder(schema *engine.Schema, connector *engine.Connector, entity string) *DeleteBuilder {
@@ -421,8 +442,9 @@ func (db *DeleteBuilder) Execute(ctx context.Context) (*engine.DeleteResult, err
 	}
 
 	if db.shouldDebug() {
-		fmt.Printf("\n[SQL] DELETE %s\n%s\n", db.entity, sql)
-		fmt.Print(formatDebugParams(filterLabels(db.filters), orderedValues))
+		debug := db.debugContext()
+		debug.LogMutationSQL("DELETE", db.entity, sql)
+		debug.LogNamedParams(filterLabels(db.filters), orderedValues)
 	}
 
 	// Execute via pgx
@@ -436,7 +458,7 @@ func (db *DeleteBuilder) Execute(ctx context.Context) (*engine.DeleteResult, err
 	duration := time.Since(start)
 
 	if db.shouldTrace() {
-		fmt.Printf("[TRACE] DELETE on %s: %v, %d rows\n", db.entity, duration, affected)
+		db.debugContext().LogMutationTrace("DELETE", db.entity, duration, affected)
 	}
 
 	return &engine.DeleteResult{
@@ -445,11 +467,19 @@ func (db *DeleteBuilder) Execute(ctx context.Context) (*engine.DeleteResult, err
 }
 
 func (db *DeleteBuilder) shouldDebug() bool {
-	return effectiveDebugLevel(db.debugLevel) >= engine.DebugSQL
+	return db.debugContext().Level >= engine.DebugSQL
 }
 
 func (db *DeleteBuilder) shouldTrace() bool {
-	return effectiveDebugLevel(db.debugLevel) >= engine.DebugTrace
+	return db.debugContext().Level >= engine.DebugTrace
+}
+
+func (db *DeleteBuilder) SetDebugContext(debug *engine.DebugContext) {
+	db.debug = debug
+}
+
+func (db *DeleteBuilder) debugContext() *engine.DebugContext {
+	return effectiveDebugContext(db.debug, db.debugLevel)
 }
 
 func (db *DeleteBuilder) generateSQL() (string, []interface{}, error) {

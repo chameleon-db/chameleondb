@@ -19,16 +19,10 @@ func NewExecutor(connector *Connector) *Executor {
 	return &Executor{connector: connector}
 }
 
-// Execute runs a QueryBuilder against the database
-func (ex *Executor) Execute(ctx context.Context, qb *QueryBuilder) (*QueryResult, error) {
+// Execute runs a generated query against the database.
+func (ex *Executor) Execute(ctx context.Context, qb *QueryBuilder, generated *GeneratedSQL) (*QueryResult, error) {
 	if !ex.connector.IsConnected() {
 		return nil, fmt.Errorf("not connected to database")
-	}
-
-	// Generate SQL
-	generated, err := qb.ToSQL()
-	if err != nil {
-		return nil, fmt.Errorf("SQL generation failed: %w", err)
 	}
 
 	debugCtx := qb.getDebugContext()
