@@ -280,7 +280,7 @@ func TestSafetyError(t *testing.T) {
 	err := &SafetyError{
 		Operation:  "delete_without_where",
 		Message:    "DELETE without WHERE clause is not allowed",
-		Suggestion: "Add Filter() or use ForceDeleteAll()",
+		Suggestion: "Add Filter() to restrict which rows are deleted",
 	}
 
 	errMsg := err.Error()

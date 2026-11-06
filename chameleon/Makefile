@@ -25,6 +25,21 @@ UNIT_TEST_PACKAGES := $(shell go list ./... | grep -v '/tests/integration')
 build-rust:
 	cd ../chameleon-core && cargo build --release
 
+# Run Go tests, preserving their exit status and summarizing failures.
+define run-go-tests
+	@set -o pipefail; \
+	log=$$(mktemp); \
+	trap 'rm -f "$$log"' EXIT; \
+	$(1) 2>&1 | tee "$$log"; \
+	status=$${PIPESTATUS[0]}; \
+	if [ $$status -ne 0 ]; then \
+		echo ""; \
+		echo "Test command failed (exit $$status). Failure summary:"; \
+		grep -E '^(# |FAIL|--- FAIL:)' "$$log" || true; \
+	fi; \
+	exit $$status
+endef
+
 # Build Go binary with explicit library path
 build: build-rust
 	CGO_LDFLAGS="-L$(RUST_LIB_DIR) -lchameleon -Wl,-rpath,$(RUST_LIB_DIR)" \
@@ -33,10 +48,10 @@ build: build-rust
 
 # Run tests
 test: build-rust
-	CGO_LDFLAGS="$(CGO_TEST_LDFLAGS)" \
+	$(call run-go-tests,CGO_LDFLAGS="$(CGO_TEST_LDFLAGS)" \
 	CGO_CFLAGS="$(CGO_TEST_CFLAGS)" \
 	LD_LIBRARY_PATH="$(RUST_LIB_DIR_ABS)" \
-	go test -v $(UNIT_TEST_PACKAGES) -count=1
+	go test -v $(UNIT_TEST_PACKAGES) -count=1)
 
 test-integration:
 	@echo "Building Rust library..."

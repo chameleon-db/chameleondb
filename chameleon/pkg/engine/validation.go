@@ -151,7 +151,7 @@ func (v *Validator) ValidateUpdateInput(
 		return &SafetyError{
 			Operation:  "update_without_filter",
 			Message:    "UPDATE requires a WHERE clause",
-			Suggestion: "Use Filter() or ForceUpdateAll()",
+			Suggestion: "Use Filter() to restrict which rows are updated",
 		}
 	}
 
@@ -212,7 +212,7 @@ func (v *Validator) ValidateDeleteInput(
 		return &SafetyError{
 			Operation:  "delete_without_filter",
 			Message:    "DELETE without WHERE is blocked",
-			Suggestion: "Use Filter() or ForceDeleteAll()",
+			Suggestion: "Use Filter() to restrict which rows are deleted",
 		}
 	}
 

@@ -2,6 +2,8 @@ package mutation
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
@@ -657,5 +659,52 @@ func TestBuilders_GenerateSQLRejectsInvalidTableName(t *testing.T) {
 		if _, _, err := newDelete(entity, "id").generateSQL(); err == nil {
 			t.Errorf("delete SQL generated for entity %q", entity)
 		}
+	}
+}
+
+func TestDeleteBuilder_GenerateSQLIsDeterministic(t *testing.T) {
+	builder := NewDeleteBuilder(testSchema(), mockConnector(), "User")
+	builder.Filter("id", "eq", "a").Filter("email", "eq", "b").Filter("name", "like", "c").Filter("age", "gte", 1)
+
+	wantSQL, wantValues, err := builder.generateSQL()
+	if err != nil {
+		t.Fatalf("generateSQL() error = %v", err)
+	}
+
+	for i := 0; i < 50; i++ {
+		gotSQL, gotValues, err := builder.generateSQL()
+		if err != nil {
+			t.Fatalf("generateSQL() error = %v", err)
+		}
+		if gotSQL != wantSQL || fmt.Sprint(gotValues) != fmt.Sprint(wantValues) {
+			t.Fatalf("generateSQL is not deterministic:\n%s %v\n%s %v", wantSQL, wantValues, gotSQL, gotValues)
+		}
+	}
+}
+
+func TestUpdateAndDeleteBuilders_NullAndLikeFilters(t *testing.T) {
+	update := NewUpdateBuilder(testSchema(), mockConnector(), "User")
+	update.Set("name", "x").Filter("age", "eq", nil).Filter("email", "like", "ana")
+
+	sql, values, err := update.generateSQL()
+	if err != nil {
+		t.Fatalf("update generateSQL() error = %v", err)
+	}
+	if !strings.Contains(sql, `WHERE "age" IS NULL AND "email" LIKE $2 ESCAPE '\'`) {
+		t.Fatalf("unexpected UPDATE SQL: %s", sql)
+	}
+	if fmt.Sprint(values) != "[x %ana%]" {
+		t.Fatalf("values = %v", values)
+	}
+
+	del := NewDeleteBuilder(testSchema(), mockConnector(), "User")
+	del.Filter("age", "neq", nil)
+
+	sql, values, err = del.generateSQL()
+	if err != nil {
+		t.Fatalf("delete generateSQL() error = %v", err)
+	}
+	if sql != `DELETE FROM "users" WHERE "age" IS NOT NULL` || len(values) != 0 {
+		t.Fatalf("unexpected DELETE SQL: %s %v", sql, values)
 	}
 }

@@ -339,40 +339,17 @@ func (ub *UpdateBuilder) generateSQL() (string, []interface{}, error) {
 		return "", nil, fmt.Errorf("UPDATE requires at least one field to set")
 	}
 
-	// WHERE clauses - sort filters for consistent order
-	var whereFields []string
-	for filterKey := range ub.filters {
-		whereFields = append(whereFields, filterKey)
-	}
-	sort.Strings(whereFields)
-
-	var whereClauses []string
-	for _, filterKey := range whereFields {
-		parts := strings.SplitN(filterKey, ":", 2)
-		field := parts[0]
-		op := "eq"
-		if len(parts) == 2 && parts[1] != "" {
-			op = parts[1]
-		}
-
-		sqlOp, err := mutationOperatorToSQL(op)
-		if err != nil {
-			return "", nil, err
-		}
-
-		column, err := engine.QuoteIdent(field)
-		if err != nil {
-			return "", nil, fmt.Errorf("invalid field name %q", field)
-		}
-
-		whereClauses = append(whereClauses, fmt.Sprintf("%s %s $%d", column, sqlOp, paramIndex))
-		values = append(values, ub.filters[filterKey])
-		paramIndex++
+	// WHERE clauses (sorted by buildWhere for consistent order)
+	whereClauses, whereValues, err := buildWhere(ub.filters, paramIndex)
+	if err != nil {
+		return "", nil, err
 	}
 
 	if len(whereClauses) == 0 {
 		return "", nil, fmt.Errorf("UPDATE without filters is blocked")
 	}
+
+	values = append(values, whereValues...)
 
 	sql := fmt.Sprintf(
 		"UPDATE %s SET %s WHERE %s RETURNING *",
@@ -499,31 +476,9 @@ func (db *DeleteBuilder) generateSQL() (string, []interface{}, error) {
 		return "", nil, fmt.Errorf("invalid table name for entity %q", db.entity)
 	}
 
-	var whereClauses []string
-	var values []interface{}
-	paramIndex := 1
-
-	for filterKey, value := range db.filters {
-		parts := strings.SplitN(filterKey, ":", 2)
-		field := parts[0]
-		op := "eq"
-		if len(parts) == 2 && parts[1] != "" {
-			op = parts[1]
-		}
-
-		sqlOp, err := mutationOperatorToSQL(op)
-		if err != nil {
-			return "", nil, err
-		}
-
-		column, err := engine.QuoteIdent(field)
-		if err != nil {
-			return "", nil, fmt.Errorf("invalid field name %q", field)
-		}
-
-		whereClauses = append(whereClauses, fmt.Sprintf("%s %s $%d", column, sqlOp, paramIndex))
-		values = append(values, value)
-		paramIndex++
+	whereClauses, values, err := buildWhere(db.filters, 1)
+	if err != nil {
+		return "", nil, err
 	}
 
 	if len(whereClauses) == 0 {

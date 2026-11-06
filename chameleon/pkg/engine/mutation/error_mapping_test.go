@@ -72,6 +72,57 @@ func TestMapDatabaseErrorForeignKeyViolation(t *testing.T) {
 	}
 }
 
+func TestMapDatabaseErrorForeignKeyOnDelete(t *testing.T) {
+	pgErr := &pgconn.PgError{
+		Code:           "23503",
+		Message:        `update or delete on table "users" violates foreign key constraint "posts_author_id_fkey" on table "posts"`,
+		Detail:         `Key (id)=(0d9e5f1c-7f3a-4a2e-9d3b-1f0e8c6a4b21) is still referenced from table "posts".`,
+		ConstraintName: "posts_author_id_fkey",
+	}
+
+	err := mapDatabaseError(pgErr, "User", "DELETE", nil)
+
+	fkErr, ok := err.(*engine.ForeignKeyConstraintError)
+	if !ok {
+		t.Fatalf("expected ForeignKeyConstraintError, got %T", err)
+	}
+	if fkErr.Entity != "User" {
+		t.Errorf("Entity = %q, want User", fkErr.Entity)
+	}
+	if fkErr.DependentTable != "posts" {
+		t.Errorf("DependentTable = %q, want posts", fkErr.DependentTable)
+	}
+	if fkErr.ID != "0d9e5f1c-7f3a-4a2e-9d3b-1f0e8c6a4b21" {
+		t.Errorf("ID = %v", fkErr.ID)
+	}
+	if fkErr.Suggestion == "" {
+		t.Error("expected a suggestion")
+	}
+}
+
+func TestExtractDependentHelpers(t *testing.T) {
+	detail := `Key (id)=(abc-123) is still referenced from table "order_items".`
+
+	if got := extractDependentTableFromDetail(detail); got != "order_items" {
+		t.Errorf("extractDependentTableFromDetail() = %q", got)
+	}
+	if got := extractKeyValueFromDetail(detail); got != "abc-123" {
+		t.Errorf("extractKeyValueFromDetail() = %q", got)
+	}
+
+	// The insert-side detail is not a "still referenced" detail.
+	insertDetail := `Key (author_id)=(x) is not present in table "users".`
+	if got := extractDependentTableFromDetail(insertDetail); got != "" {
+		t.Errorf("extractDependentTableFromDetail(insert detail) = %q, want empty", got)
+	}
+	if got := extractDependentTableFromDetail(""); got != "" {
+		t.Errorf("empty detail = %q", got)
+	}
+	if got := extractKeyValueFromDetail("no key here"); got != "" {
+		t.Errorf("extractKeyValueFromDetail(no key) = %q", got)
+	}
+}
+
 func TestMapDatabaseErrorNotNullAndCheckAndUnknown(t *testing.T) {
 	notNullErr := &pgconn.PgError{Code: "23502", ColumnName: "email"}
 	err := mapDatabaseError(notNullErr, "User", "insert", nil)

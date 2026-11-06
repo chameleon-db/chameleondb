@@ -219,13 +219,20 @@ type ForeignKeyConstraintError struct {
 }
 
 func (e *ForeignKeyConstraintError) Error() string {
+	// PostgreSQL does not say how many rows reference the key, so the count is
+	// only shown when the caller knows it.
+	dependents := fmt.Sprintf("Records in %s still reference this", e.DependentTable)
+	if e.DependentCount > 0 {
+		dependents = fmt.Sprintf("Dependent records: %d %s(s) reference this", e.DependentCount, e.DependentTable)
+	}
+
 	return fmt.Sprintf(
 		"ForeignKeyConstraintError: Cannot delete/update - dependents exist\n"+
 			"  Entity: %s(id=%v)\n"+
-			"  Dependent records: %d %s(s) reference this\n"+
+			"  %s\n"+
 			"  Suggestion: %s",
 		e.Entity, e.ID,
-		e.DependentCount, e.DependentTable,
+		dependents,
 		e.Suggestion,
 	)
 }

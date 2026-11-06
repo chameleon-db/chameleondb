@@ -71,8 +71,28 @@ func mapUniqueViolation(pgErr *pgconn.PgError, entity string, values map[string]
 	}
 }
 
-// mapForeignKeyViolation handles foreign key constraint violations
+// mapForeignKeyViolation handles foreign key constraint violations.
+//
+// PostgreSQL reports two different situations with the same code (23503):
+//   - a row points at a parent that does not exist (INSERT, or UPDATE of the
+//     foreign key): `Key (author_id)=(x) is not present in table "users".`
+//     This becomes a ForeignKeyError.
+//   - a parent row is deleted (or its key changed) while children still point at
+//     it: `Key (id)=(x) is still referenced from table "posts".`
+//     This becomes a ForeignKeyConstraintError.
 func mapForeignKeyViolation(pgErr *pgconn.PgError, entity string, values map[string]interface{}) error {
+	if dependentTable := extractDependentTableFromDetail(pgErr.Detail); dependentTable != "" {
+		return &engine.ForeignKeyConstraintError{
+			Entity:         entity,
+			ID:             extractKeyValueFromDetail(pgErr.Detail),
+			DependentTable: dependentTable,
+			Suggestion: fmt.Sprintf(
+				"Delete or reassign the records in %s that reference this %s first",
+				dependentTable, entity,
+			),
+		}
+	}
+
 	// Detail format: "Key (author_id)=(uuid-999) is not present in table "users"."
 	field := extractFieldFromDetail(pgErr.Detail)
 	value := extractValueForField(field, values)
@@ -214,6 +234,52 @@ func extractReferencedTableFromDetail(detail string) string {
 	}
 
 	return quotedPart[start+1 : start+1+end]
+}
+
+// extractDependentTableFromDetail extracts the referencing table from the detail
+// PostgreSQL gives when a referenced row is
+// Input: 'Key (id)=(abc) is still referenced from table "posts".'
+// Output: "posts"
+func extractDependentTableFromDetail(detail string) string {
+	const marker = "is still referenced from table"
+
+	idx := strings.Index(detail, marker)
+	if idx < 0 {
+		return ""
+	}
+
+	rest := detail[idx+len(marker):]
+	start := strings.Index(rest, `"`)
+	if start < 0 {
+		return ""
+	}
+
+	end := strings.Index(rest[start+1:], `"`)
+	if end < 0 {
+		return ""
+	}
+
+	return rest[start+1 : start+1+end]
+}
+
+// extractKeyValueFromDetail extracts the key value from a constraint detail.
+// Input: 'Key (id)=(abc) is still referenced from table "posts".'
+// Output: "abc"
+func extractKeyValueFromDetail(detail string) string {
+	const marker = ")=("
+
+	idx := strings.Index(detail, marker)
+	if idx < 0 {
+		return ""
+	}
+
+	rest := detail[idx+len(marker):]
+	end := strings.Index(rest, ")")
+	if end < 0 {
+		return ""
+	}
+
+	return rest[:end]
 }
 
 // extractFieldFromMessage extracts field name from error message
