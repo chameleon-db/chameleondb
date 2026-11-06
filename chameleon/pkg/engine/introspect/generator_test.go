@@ -42,16 +42,57 @@ func TestMapColumnType(t *testing.T) {
 		{name: "double precision", sqlType: "double precision", want: "float"},
 		{name: "boolean", sqlType: "boolean", want: "bool"},
 		{name: "timestamp with tz", sqlType: "timestamp with time zone", want: "timestamp"},
-		{name: "unknown fallback", sqlType: "xml", want: "string"},
+		{name: "timestamp without tz", sqlType: "timestamp without time zone", want: "timestamp"},
+		{name: "character", sqlType: "character", want: "string"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := mapColumnType(tt.sqlType)
+			got, mapped := mapColumnType(tt.sqlType)
 			if got != tt.want {
 				t.Fatalf("mapColumnType(%q) = %q, want %q", tt.sqlType, got, tt.want)
 			}
+			if !mapped {
+				t.Fatalf("mapColumnType(%q) reported no mapping", tt.sqlType)
+			}
 		})
+	}
+}
+
+func TestMapColumnType_UnknownTypeIsFlagged(t *testing.T) {
+	for _, sqlType := range []string{"jsonb", "ARRAY", "USER-DEFINED", "bytea", "time without time zone", "xml"} {
+		got, mapped := mapColumnType(sqlType)
+		if got != "string" || mapped {
+			t.Fatalf("mapColumnType(%q) = (%q, %v), want (\"string\", false)", sqlType, got, mapped)
+		}
+	}
+}
+
+func TestGenerateChameleonSchema_WarnsOnUnmappedType(t *testing.T) {
+	tables := []TableInfo{
+		{
+			Name: "events",
+			Columns: []ColumnInfo{
+				{Name: "id", Type: "uuid", PrimaryKey: true},
+				{Name: "payload", Type: "jsonb"},
+				{Name: "created_at", Type: "timestamp without time zone"},
+			},
+		},
+	}
+
+	schema, err := GenerateChameleonSchema(tables)
+	if err != nil {
+		t.Fatalf("GenerateChameleonSchema failed: %v", err)
+	}
+
+	if !strings.Contains(schema, `payload: string, // WARNING: PostgreSQL type "jsonb" has no ChameleonDB equivalent`) {
+		t.Fatalf("expected a warning for the jsonb column, got:\n%s", schema)
+	}
+	if !strings.Contains(schema, "created_at: timestamp,\n") {
+		t.Fatalf("expected created_at to map to timestamp without a warning, got:\n%s", schema)
+	}
+	if strings.Count(schema, "WARNING") != 1 {
+		t.Fatalf("expected exactly one warning, got:\n%s", schema)
 	}
 }
 
