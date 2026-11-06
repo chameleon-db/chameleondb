@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -14,8 +15,9 @@ import (
 )
 
 var (
-	journalLimit  int
-	journalFormat string
+	journalLimit       int
+	journalSearchLimit int
+	journalFormat      string
 )
 
 var journalCmd = &cobra.Command{
@@ -96,7 +98,8 @@ Examples:
 var journalErrorsCmd = &cobra.Command{
 	Use:   "errors",
 	Short: "Show error journal entries",
-	Long: `Display all error operations from today's journal.
+	Long: `Display every failed operation in the journal: errors, failed and denied
+attempts, and operations aborted by readonly mode.
 
 Examples:
   chameleon journal errors
@@ -139,7 +142,7 @@ Examples:
 var journalMigrationsCmd = &cobra.Command{
 	Use:   "migrations",
 	Short: "Show migration history",
-	Long: `Display all migration operations from the journal.
+	Long: `Display all migration operations from the journal, across all days.
 
 Examples:
   chameleon journal migrations
@@ -193,6 +196,58 @@ Examples:
   chameleon journal schema v002     # View details of v002`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runJournalSchema,
+}
+
+var journalSearchCmd = &cobra.Command{
+	Use:   "search <text>",
+	Short: "Search journal entries",
+	Long: `Search the journal for entries containing the given text.
+
+The match is case-insensitive and runs over the whole log line (action,
+status, details and error message), across all days. The most recent
+matches are shown.
+
+Examples:
+  chameleon journal search migrate
+  chameleon journal search "connection refused"
+  chameleon journal search denied --limit 5 --format=json`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		query := strings.Join(args, " ")
+
+		workDir, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get working directory: %w", err)
+		}
+
+		if journalSearchLimit < 0 {
+			return fmt.Errorf("limit must not be negative")
+		}
+
+		factory := admin.NewManagerFactory(workDir)
+		logger, err := factory.CreateJournalLogger()
+		if err != nil {
+			return fmt.Errorf("failed to initialize journal: %w", err)
+		}
+
+		entries, err := logger.Search(query, journalSearchLimit)
+		if err != nil {
+			return fmt.Errorf("failed to read journal: %w", err)
+		}
+
+		if len(entries) == 0 {
+			printInfo("No journal entries match %q", query)
+			return nil
+		}
+
+		if journalFormat == "json" {
+			printEntriesJSON(entries)
+		} else {
+			printEntriesTable(entries)
+		}
+
+		return nil
+	},
 }
 
 func runJournalSchema(cmd *cobra.Command, args []string) error {
@@ -302,9 +357,11 @@ func init() {
 	journalCmd.AddCommand(journalErrorsCmd)
 	journalCmd.AddCommand(journalMigrationsCmd)
 	journalCmd.AddCommand(journalSchemaCmd)
+	journalCmd.AddCommand(journalSearchCmd)
 
 	// Add flags
 	journalLastCmd.Flags().IntVar(&journalLimit, "limit", 10, "number of entries to show")
+	journalSearchCmd.Flags().IntVar(&journalSearchLimit, "limit", 50, "maximum number of matches to show (0 = all)")
 	journalCmd.PersistentFlags().StringVar(&journalFormat, "format", "table", "output format (table|json)")
 
 	rootCmd.AddCommand(journalCmd)
@@ -369,11 +426,12 @@ func printMigrationsTable(entries []*journal.Entry) {
 // printEntriesJSON prints entries in JSON format
 func printEntriesJSON(entries []*journal.Entry) {
 	type entryJSON struct {
-		Timestamp  string `json:"timestamp"`
-		Action     string `json:"action"`
-		Status     string `json:"status"`
-		DurationMS int64  `json:"duration_ms,omitempty"`
-		Error      string `json:"error,omitempty"`
+		Timestamp  string                 `json:"timestamp"`
+		Action     string                 `json:"action"`
+		Status     string                 `json:"status"`
+		Details    map[string]interface{} `json:"details,omitempty"`
+		DurationMS int64                  `json:"duration_ms,omitempty"`
+		Error      string                 `json:"error,omitempty"`
 	}
 
 	out := make([]entryJSON, 0, len(entries))
@@ -382,6 +440,7 @@ func printEntriesJSON(entries []*journal.Entry) {
 			Timestamp: entry.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
 			Action:    entry.Action,
 			Status:    entry.Status,
+			Details:   entry.Details,
 		}
 		if entry.Duration > 0 {
 			item.DurationMS = entry.Duration
@@ -401,10 +460,14 @@ func printEntriesJSON(entries []*journal.Entry) {
 	fmt.Println(string(data))
 }
 
-// truncate truncates a string to max length
+// truncate truncates a string to at most maxLen characters (not bytes).
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen-3] + "..."
+	if maxLen <= 3 {
+		return string(runes[:maxLen])
+	}
+	return string(runes[:maxLen-3]) + "..."
 }

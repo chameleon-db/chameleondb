@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +30,22 @@ type Logger struct {
 	indexMu    sync.Mutex
 }
 
+const (
+	keyStatus   = "status"
+	keyError    = "error"
+	keyDuration = "duration_ms"
+	detailMark  = "detail."
+)
+
+var errorStatuses = map[string]bool{
+	"error":            true,
+	"failed":           true,
+	"denied":           true,
+	"aborted_readonly": true,
+}
+
+var dailyLogName = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}\.log$`)
+
 // NewLogger creates a new journal logger
 func NewLogger(journalDir string) (*Logger, error) {
 	// Create directory if not exists
@@ -41,9 +60,6 @@ func NewLogger(journalDir string) (*Logger, error) {
 
 // Log appends an entry to the journal
 func (l *Logger) Log(action, status string, details map[string]interface{}, err error) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	entry := Entry{
 		Timestamp: time.Now(),
 		Action:    action,
@@ -55,29 +71,7 @@ func (l *Logger) Log(action, status string, details map[string]interface{}, err 
 		entry.Error = err.Error()
 	}
 
-	// Get today's log file
-	logFile := l.getLogFile()
-
-	// Append to file (raw text format)
-	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open log file: %w", err)
-	}
-	defer f.Close()
-
-	// Format: timestamp [ACTION] key1=val1 key2=val2
-	line := l.formatEntry(&entry)
-	if _, err := f.WriteString(line + "\n"); err != nil {
-		return fmt.Errorf("failed to write to log: %w", err)
-	}
-
-	// Update index
-	if err := l.updateIndex(&entry); err != nil {
-		// Don't fail on index error, just log it
-		fmt.Fprintf(os.Stderr, "warning: failed to update index: %v\n", err)
-	}
-
-	return nil
+	return l.logEntry(&entry)
 }
 
 // LogMigration logs a migration event
@@ -135,27 +129,83 @@ func (l *Logger) logEntry(entry *Entry) error {
 	return nil
 }
 
-// formatEntry formats an entry as Unix-style log line
-// Format: 2026-02-12T10:15:00Z [ACTION] key1=val1 key2=val2 error="msg"
+// formatEntry formats an entry as a single Unix-style log line.
+//
+// Format: 2026-02-12T10:15:00Z [ACTION] status=ok key1=val1 key2="val with spaces" duration_ms=5 error="msg"
+//
+// Detail keys are sorted so the output is deterministic, and every value that
+// contains whitespace, quotes or control characters is quoted, so one entry is
+// always exactly one line that parseEntry can read back.
 func (l *Logger) formatEntry(e *Entry) string {
-	line := fmt.Sprintf("%s [%s] status=%s", e.Timestamp.Format(time.RFC3339), e.Action, e.Status)
+	var b strings.Builder
 
-	// Add details
-	for k, v := range e.Details {
-		line += fmt.Sprintf(" %s=%v", k, v)
+	b.WriteString(e.Timestamp.Format(time.RFC3339))
+	b.WriteString(" [")
+	b.WriteString(sanitizeAction(e.Action))
+	b.WriteString("] ")
+	b.WriteString(keyStatus + "=")
+	b.WriteString(quoteValue(e.Status))
+
+	keys := make([]string, 0, len(e.Details))
+	for k := range e.Details {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		b.WriteByte(' ')
+		b.WriteString(detailKey(k))
+		b.WriteByte('=')
+		b.WriteString(quoteValue(fmt.Sprint(e.Details[k])))
 	}
 
-	// Add duration if present
 	if e.Duration > 0 {
-		line += fmt.Sprintf(" duration_ms=%d", e.Duration)
+		b.WriteString(fmt.Sprintf(" %s=%d", keyDuration, e.Duration))
 	}
 
-	// Add error if present
 	if e.Error != "" {
-		line += fmt.Sprintf(" error=%q", e.Error)
+		b.WriteString(" " + keyError + "=" + strconv.Quote(e.Error))
 	}
 
-	return line
+	return b.String()
+}
+
+func sanitizeAction(action string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '[' || r == ']' || r <= ' ' || r == 0x7f {
+			return '_'
+		}
+		return r
+	}, action)
+}
+
+func detailKey(k string) string {
+	k = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-', r == '.':
+			return r
+		}
+		return '_'
+	}, k)
+
+	if k == "" {
+		k = "_"
+	}
+
+	switch k {
+	case keyStatus, keyError, keyDuration:
+		return detailMark + k
+	}
+
+	return k
+}
+
+func quoteValue(s string) string {
+	quoted := strconv.Quote(s)
+	if s != "" && quoted == `"`+s+`"` && !strings.ContainsAny(s, " =") {
+		return s
+	}
+	return quoted
 }
 
 // getLogFile returns the path to today's log file
@@ -230,24 +280,37 @@ func (l *Logger) updateIndex(e *Entry) error {
 	return os.WriteFile(indexFile, data, 0644)
 }
 
-// Last returns the last N entries from today's log
-func (l *Logger) Last(n int) ([]*Entry, error) {
-	logFile := l.getLogFile()
-
-	data, err := os.ReadFile(logFile)
+func (l *Logger) logFiles() ([]string, error) {
+	dirEntries, err := os.ReadDir(l.journalDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []*Entry{}, nil
+			return nil, nil
 		}
 		return nil, err
 	}
 
-	// Parse lines
-	lines := strings.Split(string(data), "\n")
+	var files []string
+	for _, de := range dirEntries {
+		if !de.IsDir() && dailyLogName.MatchString(de.Name()) {
+			files = append(files, filepath.Join(l.journalDir, de.Name()))
+		}
+	}
+	sort.Strings(files)
+	return files, nil
+}
 
+func (l *Logger) readFile(path string) ([]*Entry, []string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
 	var entries []*Entry
-	for _, line := range lines {
-		if line == "" {
+	var lines []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		entry, err := l.parseEntry(line)
@@ -256,105 +319,172 @@ func (l *Logger) Last(n int) ([]*Entry, error) {
 			continue
 		}
 		entries = append(entries, entry)
+		lines = append(lines, line)
 	}
 
-	// Return last N
-	if len(entries) > n {
-		entries = entries[len(entries)-n:]
-	}
-
-	return entries, nil
+	return entries, lines, nil
 }
 
-// Errors returns all error entries from today
-func (l *Logger) Errors() ([]*Entry, error) {
-	logFile := l.getLogFile()
-
-	data, err := os.ReadFile(logFile)
+func (l *Logger) collect(match func(entry *Entry, line string) bool) ([]*Entry, error) {
+	files, err := l.logFiles()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return []*Entry{}, nil
-		}
 		return nil, err
 	}
-
-	lines := strings.Split(string(data), "\n")
-	var entries []*Entry
-
-	for _, line := range lines {
-		if line == "" || !strings.Contains(line, "status=error") {
-			continue
-		}
-		entry, err := l.parseEntry(line)
+	result := []*Entry{}
+	for _, file := range files {
+		entries, lines, err := l.readFile(file)
 		if err != nil {
-			continue
+			return nil, err
 		}
-		entries = append(entries, entry)
+		for i, entry := range entries {
+			if match(entry, lines[i]) {
+				result = append(result, entry)
+			}
+		}
 	}
 
-	return entries, nil
+	return result, nil
+}
+
+// Last returns the last N entries, reading back across days when the
+// current day has fewer than N.
+func (l *Logger) Last(n int) ([]*Entry, error) {
+	if n <= 0 {
+		return []*Entry{}, nil
+	}
+	files, err := l.logFiles()
+	if err != nil {
+		return nil, err
+	}
+	var collected []*Entry
+	for i := len(files) - 1; i >= 0 && len(collected) < n; i-- {
+		entries, _, err := l.readFile(files[i])
+		if err != nil {
+			return nil, err
+		}
+		collected = append(append([]*Entry{}, entries...), collected...)
+	}
+	if len(collected) > n {
+		collected = collected[len(collected)-n:]
+	}
+	if collected == nil {
+		collected = []*Entry{}
+	}
+	return collected, nil
+}
+
+// Errors returns every failed operation.
+func (l *Logger) Errors() ([]*Entry, error) {
+	return l.collect(func(e *Entry, _ string) bool {
+		return e.Error != "" || errorStatuses[e.Status]
+	})
 }
 
 // Migrations returns all migration entries
 func (l *Logger) Migrations() ([]*Entry, error) {
-	logFile := l.getLogFile()
+	return l.collect(func(e *Entry, _ string) bool {
+		return e.Action == "migrate"
+	})
+}
 
-	data, err := os.ReadFile(logFile)
+func (l *Logger) Search(query string, limit int) ([]*Entry, error) {
+	needle := strings.ToLower(query)
+	entries, err := l.collect(func(_ *Entry, line string) bool {
+		return strings.Contains(strings.ToLower(line), needle)
+	})
 	if err != nil {
-		if os.IsNotExist(err) {
-			return []*Entry{}, nil
-		}
 		return nil, err
 	}
-
-	lines := strings.Split(string(data), "\n")
-	var entries []*Entry
-
-	for _, line := range lines {
-		if line == "" || !strings.Contains(line, "[migrate]") {
-			continue
-		}
-		entry, err := l.parseEntry(line)
-		if err != nil {
-			continue
-		}
-		entries = append(entries, entry)
+	if limit > 0 && len(entries) > limit {
+		entries = entries[len(entries)-limit:]
 	}
-
 	return entries, nil
 }
 
-// parseEntry parses a log line into an Entry
-// Format: 2026-02-12T10:15:00Z [ACTION] status=ok key1=val1 key2=val2
 func (l *Logger) parseEntry(line string) (*Entry, error) {
-	parts := strings.Fields(line)
-	if len(parts) < 3 {
+	return parseEntry(line)
+}
+
+func parseEntry(line string) (*Entry, error) {
+	line = strings.TrimSpace(line)
+	sep := strings.IndexByte(line, ' ')
+	if sep < 0 {
 		return nil, fmt.Errorf("invalid log line format")
 	}
-
-	timestamp, err := time.Parse(time.RFC3339, parts[0])
+	timestamp, err := time.Parse(time.RFC3339, line[:sep])
 	if err != nil {
 		return nil, err
 	}
-
-	// Extract action from [ACTION]
-	actionStr := parts[1]
-	action := strings.Trim(actionStr, "[]")
-
+	rest := strings.TrimLeft(line[sep:], " ")
+	if !strings.HasPrefix(rest, "[") {
+		return nil, fmt.Errorf("invalid log line format")
+	}
+	end := strings.IndexByte(rest, ']')
+	if end < 0 {
+		return nil, fmt.Errorf("invalid log line format")
+	}
 	entry := &Entry{
 		Timestamp: timestamp,
-		Action:    action,
+		Action:    rest[1:end],
 	}
 
-	// Parse remaining fields
-	for _, part := range parts[2:] {
-		if strings.HasPrefix(part, "status=") {
-			entry.Status = strings.TrimPrefix(part, "status=")
-		} else if strings.HasPrefix(part, "error=") {
-			errVal := strings.TrimPrefix(part, "error=")
-			entry.Error = strings.Trim(errVal, "\"")
+	for _, kv := range parseFields(rest[end+1:]) {
+		key, value := kv[0], kv[1]
+		if strings.HasPrefix(key, detailMark) {
+			if name := strings.TrimPrefix(key, detailMark); name == keyStatus || name == keyError || name == keyDuration {
+				key = "\x00" + name
+			}
+		}
+		switch key {
+		case keyStatus:
+			entry.Status = value
+		case keyError:
+			entry.Error = value
+		case keyDuration:
+			if ms, err := strconv.ParseInt(value, 10, 64); err == nil {
+				entry.Duration = ms
+			}
+		default:
+			if entry.Details == nil {
+				entry.Details = make(map[string]interface{})
+			}
+			entry.Details[strings.TrimPrefix(key, "\x00")] = value
 		}
 	}
-
 	return entry, nil
+}
+
+func parseFields(s string) [][2]string {
+	var fields [][2]string
+	for {
+		s = strings.TrimLeft(s, " ")
+		if s == "" {
+			return fields
+		}
+		eq := strings.IndexAny(s, "= ")
+		if eq < 0 || s[eq] == ' ' {
+			if eq < 0 {
+				return fields
+			}
+			s = s[eq:]
+			continue
+		}
+		key := s[:eq]
+		s = s[eq+1:]
+		if strings.HasPrefix(s, `"`) {
+			if quoted, err := strconv.QuotedPrefix(s); err == nil {
+				if value, err := strconv.Unquote(quoted); err == nil {
+					fields = append(fields, [2]string{key, value})
+					s = s[len(quoted):]
+					continue
+				}
+			}
+		}
+		end := strings.IndexByte(s, ' ')
+		if end < 0 {
+			end = len(s)
+		}
+		fields = append(fields, [2]string{key, s[:end]})
+		s = s[end:]
+	}
 }

@@ -60,6 +60,12 @@ func TestTruncate(t *testing.T) {
 			expected: "",
 		},
 		{
+			name:     "counts characters, not bytes",
+			s:        "ñññññññññññ",
+			maxLen:   8,
+			expected: "ñññññ...",
+		},
+		{
 			name:     "very short maxLen",
 			s:        "hello world",
 			maxLen:   5,
