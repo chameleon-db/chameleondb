@@ -8,6 +8,34 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 ## [Unreleased]
 
+Paste under `## [Unreleased]` in CHANGELOG.md (all three PRs, so the patches do not conflict).
+
+## [v1.1.1] - 2026-11-06
+
+### Fixed
+- The error for a `uuid()` default on a non-uuid field now names `uuid()` instead of `uuid_v4()`.
+- `introspect` recognizes `timestamp without time zone`, the type PostgreSQL reports for the `TIMESTAMP` columns ChameleonDB itself creates. Before, those columns were introspected as `string`.
+- Journal: details and `duration_ms` are read back, so `journal migrations` shows the Version and Duration columns instead of empty ones.
+- Journal: error messages are no longer cut at the first space in `journal errors` and `journal last`.
+- Journal: entries are written deterministically (detail keys sorted) and every value that needs it is quoted, so an entry is always one line. A value with a newline can no longer forge a second entry or change the status.
+- Journal: `Log` and `logEntry` were the same code twice; `Log` now delegates.
+- `journal` output truncates by characters, not bytes, so a multi-byte character is never split.
+
+### Changed
+- `introspect` adds a `// WARNING` comment to every column whose PostgreSQL type has no ChameleonDB equivalent (`jsonb`, arrays, `bytea`, `time`, ...) instead of silently using `string`.
+- `journal last` reads back across days when today has fewer entries than requested. `journal migrations` and `journal errors` cover all days.
+- `journal errors` lists every failed operation: status `error`, `failed`, `denied` or `aborted_readonly`, or any entry with an error message.
+- `journal ... --format=json` includes the entry details.
+
+### Added
+- `chameleon journal search <text>`, advertised in the help but not implemented until now: case-insensitive match over the whole log line across all days, with `--limit` (default 50, 0 for all).
+- Integration test that applies `default uuid()`, literal and `now()` defaults against PostgreSQL and checks the inserted record.
+
+### Documentation
+- README: `default uuid()` needs PostgreSQL 13 or newer (`gen_random_uuid()`), or `pgcrypto` on older versions.
+
+## [Unreleased]
+
 ### Fixed
 - Self-referential has-many relations (for example `children: [Category] via parent_id`) are no longer reported as a circular dependency. Cycles between two or more entities are still rejected.
 
