@@ -18,6 +18,10 @@ func TestDebugContextFromEnv(t *testing.T) {
 		{"1", DebugSQL},
 		{"trace", DebugTrace},
 		{"explain", DebugExplain},
+		{"sql", DebugSQL},
+		{"TRUE", DebugSQL},
+		{" Trace ", DebugTrace},
+		{"nonsense", DebugNone},
 	}
 
 	for _, testCase := range testCases {

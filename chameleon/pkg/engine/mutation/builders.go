@@ -65,9 +65,8 @@ func (ib *InsertBuilder) Execute(ctx context.Context) (*engine.InsertResult, err
 	}
 
 	if ib.shouldDebug() {
-		fmt.Printf("[ENTITY] INSERT INTO %s\n", ib.entity)
-		fmt.Printf("[SQL] %s\n", sql)
-		fmt.Printf("[VALUES] %v\n\n", orderedValues)
+		fmt.Printf("\n[SQL] INSERT %s\n%s\n", ib.entity, sql)
+		fmt.Print(formatDebugParams(sortedKeys(ib.values), orderedValues))
 	}
 
 	// Execute via pgx
@@ -123,17 +122,11 @@ func (ib *InsertBuilder) Execute(ctx context.Context) (*engine.InsertResult, err
 }
 
 func (ib *InsertBuilder) shouldDebug() bool {
-	if ib.debugLevel != nil {
-		return *ib.debugLevel >= engine.DebugSQL
-	}
-	return false
+	return effectiveDebugLevel(ib.debugLevel) >= engine.DebugSQL
 }
 
 func (ib *InsertBuilder) shouldTrace() bool {
-	if ib.debugLevel != nil {
-		return *ib.debugLevel >= engine.DebugTrace
-	}
-	return false
+	return effectiveDebugLevel(ib.debugLevel) >= engine.DebugTrace
 }
 
 func (ib *InsertBuilder) generateSQL() (string, []interface{}, error) {
@@ -251,7 +244,8 @@ func (ub *UpdateBuilder) Execute(ctx context.Context) (*engine.UpdateResult, err
 
 	if ub.shouldDebug() {
 		fmt.Printf("\n[SQL] UPDATE %s\n%s\n", ub.entity, sql)
-		fmt.Printf("[VALUES] %v\n\n", orderedValues)
+		labels := append(sortedKeys(ub.updates), filterLabels(ub.filters)...)
+		fmt.Print(formatDebugParams(labels, orderedValues))
 	}
 
 	// Execute via pgx
@@ -295,17 +289,11 @@ func (ub *UpdateBuilder) Execute(ctx context.Context) (*engine.UpdateResult, err
 }
 
 func (ub *UpdateBuilder) shouldDebug() bool {
-	if ub.debugLevel != nil {
-		return *ub.debugLevel >= engine.DebugSQL
-	}
-	return false
+	return effectiveDebugLevel(ub.debugLevel) >= engine.DebugSQL
 }
 
 func (ub *UpdateBuilder) shouldTrace() bool {
-	if ub.debugLevel != nil {
-		return *ub.debugLevel >= engine.DebugTrace
-	}
-	return false
+	return effectiveDebugLevel(ub.debugLevel) >= engine.DebugTrace
 }
 
 func (ub *UpdateBuilder) generateSQL() (string, []interface{}, error) {
@@ -433,8 +421,8 @@ func (db *DeleteBuilder) Execute(ctx context.Context) (*engine.DeleteResult, err
 	}
 
 	if db.shouldDebug() {
-		fmt.Printf("\n[SQL] DELETE FROM %s\n%s\n", db.entity, sql)
-		fmt.Printf("[VALUES] %v\n\n", orderedValues)
+		fmt.Printf("\n[SQL] DELETE %s\n%s\n", db.entity, sql)
+		fmt.Print(formatDebugParams(filterLabels(db.filters), orderedValues))
 	}
 
 	// Execute via pgx
@@ -457,17 +445,11 @@ func (db *DeleteBuilder) Execute(ctx context.Context) (*engine.DeleteResult, err
 }
 
 func (db *DeleteBuilder) shouldDebug() bool {
-	if db.debugLevel != nil {
-		return *db.debugLevel >= engine.DebugSQL
-	}
-	return false
+	return effectiveDebugLevel(db.debugLevel) >= engine.DebugSQL
 }
 
 func (db *DeleteBuilder) shouldTrace() bool {
-	if db.debugLevel != nil {
-		return *db.debugLevel >= engine.DebugTrace
-	}
-	return false
+	return effectiveDebugLevel(db.debugLevel) >= engine.DebugTrace
 }
 
 func (db *DeleteBuilder) generateSQL() (string, []interface{}, error) {
