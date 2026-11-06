@@ -354,6 +354,12 @@ Tip: for non-interactive usage, set CHAMELEON_MODE_PASSWORD.`,
 			return err
 		}
 
+		// Keep the verifier out of version control, also in projects
+		// created before it was ignored by default.
+		if err := admin.NewDirectory(workDir).EnsureGitignore(); err != nil {
+			printWarning("Could not update .chameleon/.gitignore: %v", err)
+		}
+
 		factory := admin.NewManagerFactory(workDir)
 		journalLogger, _ := factory.CreateJournalLogger()
 		if journalLogger != nil {
