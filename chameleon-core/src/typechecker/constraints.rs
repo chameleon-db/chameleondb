@@ -26,6 +26,43 @@ pub fn check_primary_keys(schema: &Schema) -> Vec<TypeCheckError> {
     errors
 }
 
+/// Validates modifier combinations that make no sense together
+pub fn check_field_modifiers(schema: &Schema) -> Vec<TypeCheckError> {
+    let mut errors = Vec::new();
+
+    for entity in &schema.entities {
+        let mut fields: Vec<_> = entity.fields.values().collect();
+        fields.sort_by(|a, b| a.name.cmp(&b.name));
+
+        for field in fields {
+            // A primary key is always NOT NULL in PostgreSQL
+            if field.primary_key && field.nullable {
+                errors.push(TypeCheckError::NullablePrimaryKey {
+                    entity: entity.name.clone(),
+                    field: field.name.clone(),
+                });
+            }
+
+            if has_zero_dimension_vector(&field.field_type) {
+                errors.push(TypeCheckError::InvalidVectorDimension {
+                    entity: entity.name.clone(),
+                    field: field.name.clone(),
+                });
+            }
+        }
+    }
+
+    errors
+}
+
+fn has_zero_dimension_vector(field_type: &FieldType) -> bool {
+    match field_type {
+        FieldType::Vector(0) => true,
+        FieldType::Array(inner) => has_zero_dimension_vector(inner),
+        _ => false,
+    }
+}
+
 /// Validates backend annotation consistency
 pub fn check_annotations(schema: &Schema) -> Vec<TypeCheckError> {
     let mut errors = Vec::new();
