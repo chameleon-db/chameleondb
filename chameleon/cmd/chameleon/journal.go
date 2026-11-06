@@ -182,9 +182,7 @@ Examples:
 	},
 }
 
-// ========================================
 // Schema Vault Journal
-// ========================================
 
 var journalSchemaCmd = &cobra.Command{
 	Use:   "schema [version]",

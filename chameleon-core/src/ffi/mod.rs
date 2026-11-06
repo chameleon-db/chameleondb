@@ -338,10 +338,6 @@ pub unsafe extern "C" fn chameleon_generate_migration(
     }
 }
 
-// ============================================================
-// NEW: MUTATION SQL GENERATION (v0.1)
-// ============================================================
-
 /// Set schema cache for efficient batch operations
 /// 
 /// Call this once before batch mutations, then pass NULL for schema_json
@@ -456,9 +452,7 @@ pub extern "C" fn generate_mutation_sql(
     CString::new(result.to_string()).unwrap().into_raw()
 }
 
-// ============================================================
 // HELPER FUNCTION
-// ============================================================
 
 unsafe fn set_error(error_out: *mut *mut c_char, message: &str) {
     if !error_out.is_null() {

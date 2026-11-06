@@ -2,9 +2,7 @@ package engine
 
 import "context"
 
-// ============================================================
 // MUTATION TYPES
-// ============================================================
 
 type MutationType int
 
@@ -21,9 +19,7 @@ type Mutation struct {
 	AffectedRows int64
 }
 
-// ============================================================
 // MUTATION RESULT TYPES
-// ============================================================
 
 type InsertResult struct {
 	ID       interface{}            // Primary key
@@ -40,9 +36,7 @@ type DeleteResult struct {
 	Affected int
 }
 
-// ============================================================
 // MUTATION BUILDER INTERFACES
-// ============================================================
 
 // InsertMutation builds and executes INSERT operations
 type InsertMutation interface {
@@ -83,9 +77,7 @@ type DeleteMutation interface {
 	Execute(ctx context.Context) (*DeleteResult, error)
 }
 
-// ============================================================
 // FACTORY
-// ============================================================
 
 // MutationFactory creates mutation builders
 //
@@ -107,9 +99,7 @@ type MutationFactory interface {
 	NewDelete(entity string, schema *Schema, connector *Connector) DeleteMutation
 }
 
-// ============================================================
 // AUXILIARY CONTRACTS
-// ============================================================
 
 type ExecutionResult struct {
 	RowsAffected int64

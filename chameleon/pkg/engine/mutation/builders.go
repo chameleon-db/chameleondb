@@ -10,9 +10,7 @@ import (
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
 )
 
-// ============================================================
 // INSERT BUILDER
-// ============================================================
 
 type InsertBuilder struct {
 	schema    *engine.Schema
@@ -184,9 +182,7 @@ func (ib *InsertBuilder) generateSQL() (string, []interface{}, error) {
 	return sql, values, nil
 }
 
-// ============================================================
 // UPDATE BUILDER
-// ============================================================
 
 type UpdateBuilder struct {
 	schema    *engine.Schema
@@ -380,9 +376,7 @@ func (ub *UpdateBuilder) parseFilters() map[string]interface{} {
 	return result
 }
 
-// ============================================================
 // DELETE BUILDER
-// ============================================================
 
 type DeleteBuilder struct {
 	schema         *engine.Schema
@@ -517,9 +511,7 @@ func (db *DeleteBuilder) parseFilters() map[string]interface{} {
 	return result
 }
 
-// ============================================================
 // UTILITIES
-// ============================================================
 
 // entityToTableName converts entity names to table names.
 // It handles snake_case conversion and simple pluralization.

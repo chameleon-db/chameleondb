@@ -24,9 +24,7 @@ var (
 	dashboardDSN  string
 )
 
-// ─────────────────────────────────────────────────────────────
 // Command definitions
-// ─────────────────────────────────────────────────────────────
 
 var dashboardCmd = &cobra.Command{
 	Use:   "dashboard",
@@ -66,9 +64,7 @@ func init() {
 	rootCmd.AddCommand(dashboardCmd)
 }
 
-// ─────────────────────────────────────────────────────────────
 // Server state
-// ─────────────────────────────────────────────────────────────
 
 type dashboardServer struct {
 	eng     *engine.Engine
@@ -77,9 +73,7 @@ type dashboardServer struct {
 	jLogger *journal.Logger
 }
 
-// ─────────────────────────────────────────────────────────────
 // Startup
-// ─────────────────────────────────────────────────────────────
 
 func runDashboardServe(cmd *cobra.Command, args []string) error {
 	workDir, err := os.Getwd()
@@ -160,9 +154,7 @@ func dashboardConnectorConfig() (engine.ConnectorConfig, error) {
 	return LoadConnectorConfig()
 }
 
-// ─────────────────────────────────────────────────────────────
 // Router
-// ─────────────────────────────────────────────────────────────
 
 func (s *dashboardServer) routes() http.Handler {
 	mux := http.NewServeMux()
@@ -188,9 +180,7 @@ func (s *dashboardServer) routes() http.Handler {
 	return dashboardCORSMiddleware(mux)
 }
 
-// ─────────────────────────────────────────────────────────────
 // Group 1 — Stateless handlers
-// ─────────────────────────────────────────────────────────────
 
 func (s *dashboardServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	dashboardJSON(w, 200, map[string]interface{}{
@@ -283,9 +273,7 @@ func (s *dashboardServer) handleSchemaERD(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// ─────────────────────────────────────────────────────────────
 // Group 2 — Database handlers
-// ─────────────────────────────────────────────────────────────
 
 func (s *dashboardServer) handleDBStatus(w http.ResponseWriter, r *http.Request) {
 	if !s.eng.IsConnected() {
@@ -569,9 +557,7 @@ func (s *dashboardServer) handleDeleteRecord(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-// ─────────────────────────────────────────────────────────────
 // Group 3 — Migrations + journal handlers
-// ─────────────────────────────────────────────────────────────
 
 func (s *dashboardServer) handleMigrationsStatus(w http.ResponseWriter, r *http.Request) {
 	if !s.v.Exists() {
@@ -650,9 +636,7 @@ func (s *dashboardServer) handleJournal(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// ─────────────────────────────────────────────────────────────
 // Helpers — DB
-// ─────────────────────────────────────────────────────────────
 
 // countRows runs SELECT COUNT(*) against a table using the raw connector.
 func (s *dashboardServer) countRows(ctx context.Context, table string) (int64, error) {
@@ -674,9 +658,7 @@ func (s *dashboardServer) countRows(ctx context.Context, table string) (int64, e
 	}
 }
 
-// ─────────────────────────────────────────────────────────────
 // Helpers — Schema
-// ─────────────────────────────────────────────────────────────
 
 func dashboardFindEntity(schema *engine.Schema, name string) *engine.Entity {
 	if schema == nil {
@@ -710,9 +692,7 @@ func dashboardQuoteIdent(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
-// ─────────────────────────────────────────────────────────────
 // Helpers — HTTP
-// ─────────────────────────────────────────────────────────────
 
 func dashboardJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")

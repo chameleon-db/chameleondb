@@ -3,9 +3,7 @@ package engine
 /*
 import "fmt"
 
-// ============================================================
 // DATABASE CONSTRAINT ERRORS
-// ============================================================
 
 // PostgresUniqueConstraintError represents a unique constraint violation from PostgreSQL
 type PostgresUniqueConstraintError struct {

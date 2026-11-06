@@ -77,7 +77,6 @@ fn test_error_handling() {
         let error_msg = CStr::from_ptr(__error__).to_str().unwrap();
         println!("Error message: {}", error_msg);
         
-        // CAMBIO: Buscar "ParseError" sin espacio
         assert!(error_msg.contains("ParseError") || error_msg.contains("Parse error"));
         
         chameleon_free_string(__error__);

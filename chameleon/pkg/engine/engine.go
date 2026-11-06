@@ -34,9 +34,7 @@ func (e *Engine) Schema() *Schema {
 	return e.schema
 }
 
-// ============================================================
 // ENGINE INITIALIZATION
-// ============================================================
 
 // NewEngine creates and initializes a new ChameleonDB engine
 //
@@ -103,9 +101,7 @@ func (e *Engine) WithDebug(level DebugLevel) *Engine {
 	return e
 }
 
-// ─────────────────────────────────────────────────────────────
 // Schema handling
-// ─────────────────────────────────────────────────────────────
 
 // LoadSchemaFromString parses a schema from a string
 func (e *Engine) loadSchemaFromString(input string) (*Schema, error) {
@@ -182,9 +178,7 @@ func (e *Engine) GetSchema() *Schema {
 	return e.schema
 }
 
-// ─────────────────────────────────────────────────────────────
 // Connection handling
-// ─────────────────────────────────────────────────────────────
 
 // Version returns the engine version
 func (e *Engine) Version() string {
@@ -227,9 +221,7 @@ func (e *Engine) Connector() *Connector {
 	return e.connector
 }
 
-// ─────────────────────────────────────────────────────────────
 // Migrations
-// ─────────────────────────────────────────────────────────────
 
 // GenerateMigration generates DDL SQL from the loaded schema
 func (e *Engine) GenerateMigration() (string, error) {
@@ -245,9 +237,7 @@ func (e *Engine) GenerateMigration() (string, error) {
 	return ffi.GenerateMigration(string(schemaJSON))
 }
 
-// ─────────────────────────────────────────────────────────────
 // Mutation API (uses registry pattern)
-// ─────────────────────────────────────────────────────────────
 
 // Insert starts a new INSERT mutation
 func (e *Engine) Insert(entity string) InsertMutation {
@@ -309,9 +299,7 @@ func (e *Engine) Delete(entity string) DeleteMutation {
 	return mutation
 }
 
-// ─────────────────────────────────────────────────────────────
 // Helpers
-// ─────────────────────────────────────────────────────────────
 
 // GetEntity returns an entity by name, or nil if not found
 func (s *Schema) GetEntity(name string) *Entity {
