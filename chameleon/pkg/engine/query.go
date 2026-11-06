@@ -315,7 +315,7 @@ func (qb *QueryBuilder) Execute(ctx context.Context) (*QueryResult, error) {
 
 	debugCtx := qb.getDebugContext()
 	debugCtx.LogSQL(generated.MainQuery)
-	debugCtx.LogParams(generated.MainParams)
+	debugCtx.LogParamsForSQL(generated.MainQuery, generated.MainParams)
 
 	result, err := qb.engine.executor.Execute(ctx, qb, generated)
 	if err != nil {
