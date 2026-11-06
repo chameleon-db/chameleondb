@@ -306,3 +306,30 @@ func TestDebugLogParamsRespectsLevel(t *testing.T) {
 
 	assert.Empty(t, buf.String())
 }
+
+func TestLogEagerSQLAndTrace(t *testing.T) {
+	var buf bytes.Buffer
+	dc := &DebugContext{Level: DebugTrace, Writer: &buf}
+
+	dc.LogEagerSQL("posts", "SELECT * FROM posts WHERE author_id = ANY($1)", []SQLParam{{Kind: "ids"}})
+	dc.LogEagerTrace("posts", 0, 3)
+
+	out := buf.String()
+	assert.Contains(t, out, "[SQL] include posts")
+	assert.Contains(t, out, "SELECT * FROM posts")
+	assert.Contains(t, out, "[PARAMS]")
+	assert.Contains(t, out, "include posts: 0s, 3 rows")
+}
+
+func TestLogEagerIsSilentBelowItsLevel(t *testing.T) {
+	var buf bytes.Buffer
+
+	off := &DebugContext{Level: DebugNone, Writer: &buf}
+	off.LogEagerSQL("posts", "SELECT 1", nil)
+	off.LogEagerTrace("posts", 0, 1)
+
+	sqlOnly := &DebugContext{Level: DebugSQL, Writer: &buf}
+	sqlOnly.LogEagerTrace("posts", 0, 1)
+
+	assert.Empty(t, buf.String())
+}

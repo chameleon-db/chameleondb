@@ -55,7 +55,7 @@ func NewEngine() (*Engine, error) {
 	}
 
 	eng := &Engine{
-		Debug:            DefaultDebugContext(),
+		Debug:            DebugContextFromEnv(),
 		vault:            vault.NewVault(workDir),
 		schemaSourcePath: schemaSourcePath,
 	}
@@ -82,7 +82,7 @@ func NewEngine() (*Engine, error) {
 // CLI-only bypass
 func NewEngineForCLI() *Engine {
 	return &Engine{
-		Debug:               DefaultDebugContext(),
+		Debug:               DebugContextFromEnv(),
 		allowSchemaOverride: true,
 	}
 }

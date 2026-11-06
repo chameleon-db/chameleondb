@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -37,17 +38,18 @@ func DefaultDebugContext() *DebugContext {
 	}
 }
 
-// DebugContextFromEnv reads from environment
+// DebugContextFromEnv reads CHAMELEON_DEBUG from the environment:
+// "1", "true" or "sql" log SQL; "trace" adds timings; "explain" is the most
+// verbose level. Anything else leaves debugging off.
 func DebugContextFromEnv() *DebugContext {
 	level := DebugNone
 
-	if os.Getenv("CHAMELEON_DEBUG") == "1" {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CHAMELEON_DEBUG"))) {
+	case "1", "true", "sql":
 		level = DebugSQL
-	}
-	if os.Getenv("CHAMELEON_DEBUG") == "trace" {
+	case "trace":
 		level = DebugTrace
-	}
-	if os.Getenv("CHAMELEON_DEBUG") == "explain" {
+	case "explain":
 		level = DebugExplain
 	}
 
@@ -85,6 +87,26 @@ func (dc *DebugContext) LogSQL(sql string) {
 	} else {
 		fmt.Fprintf(dc.Writer, "\n[SQL]\n%s\n\n", sql)
 	}
+}
+
+// LogEagerSQL logs the SQL of an eager-loading query for a relation. The
+// parent ids are bound at execution time, so only their placeholder is shown.
+func (dc *DebugContext) LogEagerSQL(relation, sql string, params []SQLParam) {
+	if dc.Level < DebugSQL {
+		return
+	}
+
+	if dc.ColorOutput {
+		fmt.Fprintf(dc.Writer, "\033[36m[SQL]\033[0m include %s\n%s\n\n", relation, sql)
+	} else {
+		fmt.Fprintf(dc.Writer, "[SQL] include %s\n%s\n\n", relation, sql)
+	}
+	dc.LogParams(params)
+}
+
+// LogEagerTrace logs the duration and row count of an eager-loading query.
+func (dc *DebugContext) LogEagerTrace(relation string, duration time.Duration, rowCount int) {
+	dc.Log(DebugTrace, "include %s: %v, %d rows", relation, duration, rowCount)
 }
 
 // LogParams logs the parameters of a statement, separately from its SQL text.

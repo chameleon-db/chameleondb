@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -29,6 +30,8 @@ func (ex *Executor) Execute(ctx context.Context, qb *QueryBuilder) (*QueryResult
 	if err != nil {
 		return nil, fmt.Errorf("SQL generation failed: %w", err)
 	}
+
+	debugCtx := qb.getDebugContext()
 
 	// Create identity map for this query.
 	identityMap := NewIdentityMap()
@@ -77,7 +80,13 @@ func (ex *Executor) Execute(ctx context.Context, qb *QueryBuilder) (*QueryResult
 			return nil, fmt.Errorf("eager query '%s' failed: %w", relName, err)
 		}
 
+		debugCtx.LogEagerSQL(relName, relSQL, generated.EagerParams[i])
+
+		eagerStart := time.Now()
 		eagerRows, err := ex.executeQuery(ctx, relSQL, args...)
+		if err == nil {
+			debugCtx.LogEagerTrace(relName, time.Since(eagerStart), len(eagerRows))
+		}
 		if err != nil {
 			return nil, fmt.Errorf("eager query '%s' failed: %w", relName, err)
 		}
