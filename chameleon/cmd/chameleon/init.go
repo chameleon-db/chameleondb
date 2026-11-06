@@ -295,8 +295,8 @@ chameleon journal migrations
 
 ## Learn More
 
-- [ChameleonDB Documentation](https://chameleondb.dev/docs)
-- [Schema Reference](https://chameleondb.dev/docs/schema)
-- [Query API](https://chameleondb.dev/docs/query)
+- [ChameleonDB Documentation](https://docs.chameleondb.dev)
+- [Schema Reference](https://docs.chameleondb.dev/schema/entities)
+- [Query API](https://docs.chameleondb.dev/queries/overview)
 `
 }

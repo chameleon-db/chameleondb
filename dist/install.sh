@@ -8,6 +8,19 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# Ask a yes/no question. Reads from the terminal, so it also works when the
+# script itself comes from a pipe (curl ... | sh). Without a terminal (CI) the
+# default answer ($2) is used.
+confirm() {
+    if (exec < /dev/tty) 2>/dev/null; then
+        printf "%s" "$1" > /dev/tty
+        read -r REPLY < /dev/tty || REPLY="$2"
+    else
+        REPLY="$2"
+    fi
+    [ "$REPLY" = "y" ] || [ "$REPLY" = "Y" ]
+}
+
 # Configuración
 REPO="chameleon-db/chameleondb"
 BIN_NAME="chameleon"
@@ -47,6 +60,7 @@ case "$OS" in
         ;;
     *)
         printf "${RED}✗${NC} Unsupported OS: $OS\n"
+        printf "   On Windows, download the archive from https://github.com/$REPO/releases\n"
         exit 1
         ;;
 esac
@@ -54,7 +68,7 @@ esac
 # === HEADER ===
 printf "\n"
 printf "${BLUE}╔════════════════════════════════════════╗${NC}\n"
-printf "${BLUE}║    🦎 ChameleonDB Installer v0.1       ║${NC}\n"
+printf "${BLUE}║    🦎 ChameleonDB Installer            ║${NC}\n"
 printf "${BLUE}║    Type-safe database access layer     ║${NC}\n"
 printf "${BLUE}╚════════════════════════════════════════╝${NC}\n"
 printf "\n"
@@ -75,8 +89,7 @@ if ! command -v psql >/dev/null 2>&1; then
     printf "     Linux (Fedora):  sudo dnf install postgresql\n"
     printf "     macOS:           brew install postgresql\n"
     printf "\n"
-    read -p "   Continue without PostgreSQL? (y/n): " -r
-    if [ "$REPLY" != "y" ] && [ "$REPLY" != "Y" ]; then
+    if ! confirm "   Continue without PostgreSQL? (y/n): " y; then
         printf "${BLUE}ℹ${NC} Installation cancelled\n"
         exit 0
     fi
@@ -94,8 +107,7 @@ fi
 if command -v chameleon >/dev/null 2>&1; then
     printf "${YELLOW}⚠${NC} ChameleonDB is already installed\n"
     printf "   Location: $(command -v chameleon)\n"
-    read -p "   Continue with reinstall? (y/n): " -r
-    if [ "$REPLY" != "y" ] && [ "$REPLY" != "Y" ]; then
+    if ! confirm "   Continue with reinstall? (y/n): " y; then
         printf "${BLUE}ℹ${NC} Installation cancelled\n"
         exit 0
     fi
@@ -260,7 +272,7 @@ if ! "$INSTALL_BIN_DIR/$BIN_NAME" version >/dev/null 2>&1; then
 fi
 
 VERSION=$("$INSTALL_BIN_DIR/$BIN_NAME" version)
-printf "${GREEN}✓${NC} ChameleonDB $VERSION installed successfully\n"
+printf "${GREEN}✓${NC} $VERSION installed successfully\n"
 
 # === VERIFY PATH ===
 if ! command -v chameleon >/dev/null 2>&1; then
@@ -276,19 +288,21 @@ printf "${BLUE}║        Installation Complete!          ║${NC}\n"
 printf "${BLUE}╚════════════════════════════════════════╝${NC}\n"
 printf "\n"
 printf "Next steps:\n"
-printf "  1. Initialize ChameleonDB into a new project:\n"
+printf "  1. Initialize ChameleonDB in a new project:\n"
 printf "     ${GREEN}cd my_project${NC}\n"
 printf "     ${GREEN}chameleon init${NC}\n"
 printf "\n"
-printf "  2. Define your *.cham schemas in schema directory\n"
+printf "  2. Edit your schema in schemas/ (init creates an example)\n"
 printf "\n"
 printf "  3. Validate the schema:\n"
 printf "     ${GREEN}chameleon validate${NC}\n"
 printf "\n"
-printf "  4. Generate migrations:\n"
+printf "  4. Review the SQL, then apply it (set DATABASE_URL first):\n"
 printf "     ${GREEN}chameleon migrate --dry-run${NC}\n"
+printf "     ${GREEN}chameleon migrate --apply${NC}\n"
 printf "\n"
-printf "Documentation: https://chameleondb.dev/docs\n"
+printf "Documentation: https://docs.chameleondb.dev\n"
+printf "Quickstart:    https://docs.chameleondb.dev/quickstart\n"
 printf "GitHub:        https://github.com/$REPO\n"
 printf "Discord:       https://chameleondb.dev/discord\n"
 printf "\n"
