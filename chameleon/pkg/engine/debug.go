@@ -29,6 +29,11 @@ type DebugContext struct {
 	ColorOutput     bool
 }
 
+var sensitiveDebugFragments = []string{
+	"password", "passwd", "secret", "token", "api_key", "apikey",
+	"private_key", "credential", "hash", "salt",
+}
+
 // DefaultDebugContext for production
 func DefaultDebugContext() *DebugContext {
 	return &DebugContext{
@@ -89,6 +94,47 @@ func (dc *DebugContext) LogSQL(sql string) {
 	}
 }
 
+// LogMutationSQL logs generated mutation SQL using the configured writer.
+func (dc *DebugContext) LogMutationSQL(operation, entity, sql string) {
+	if dc.Level < DebugSQL {
+		return
+	}
+
+	if dc.ColorOutput {
+		fmt.Fprintf(dc.Writer, "\n\033[36m[SQL]\033[0m %s %s\n%s\n", operation, entity, sql)
+	} else {
+		fmt.Fprintf(dc.Writer, "\n[SQL] %s %s\n%s\n", operation, entity, sql)
+	}
+}
+
+// LogMutationTrace logs the duration and row count of a mutation.
+func (dc *DebugContext) LogMutationTrace(operation, entity string, duration time.Duration, rowCount int) {
+	dc.Log(DebugTrace, "%s on %s: %v, %d rows", operation, entity, duration, rowCount)
+}
+
+// LogNamedParams logs parameters with field names so sensitive values can be
+// masked. Values without a matching field name are masked conservatively.
+func (dc *DebugContext) LogNamedParams(labels []string, values []interface{}) {
+	if dc.Level < DebugSQL || len(values) == 0 {
+		return
+	}
+
+	if dc.ColorOutput {
+		fmt.Fprintf(dc.Writer, "\033[36m[PARAMS]\033[0m\n")
+	} else {
+		fmt.Fprintf(dc.Writer, "[PARAMS]\n")
+	}
+	aligned := len(labels) == len(values)
+	for i, value := range values {
+		display := "[REDACTED]"
+		if aligned && !isSensitiveDebugField(labels[i]) {
+			display = fmt.Sprintf("%v", value)
+		}
+		fmt.Fprintf(dc.Writer, "$%d = %s\n", i+1, display)
+	}
+	fmt.Fprintf(dc.Writer, "\n")
+}
+
 // LogEagerSQL logs the SQL of an eager-loading query for a relation. The
 // parent ids are bound at execution time, so only their placeholder is shown.
 func (dc *DebugContext) LogEagerSQL(relation, sql string, params []SQLParam) {
@@ -120,10 +166,20 @@ func (dc *DebugContext) LogParams(params []SQLParam) {
 	} else {
 		fmt.Fprintf(dc.Writer, "[PARAMS]\n")
 	}
-	for i, param := range params {
-		fmt.Fprintf(dc.Writer, "$%d = %s\n", i+1, param)
+	for i := range params {
+		fmt.Fprintf(dc.Writer, "$%d = [REDACTED]\n", i+1)
 	}
 	fmt.Fprintf(dc.Writer, "\n")
+}
+
+func isSensitiveDebugField(name string) bool {
+	lower := strings.ToLower(name)
+	for _, fragment := range sensitiveDebugFragments {
+		if strings.Contains(lower, fragment) {
+			return true
+		}
+	}
+	return false
 }
 
 // LogQuery logs full query trace

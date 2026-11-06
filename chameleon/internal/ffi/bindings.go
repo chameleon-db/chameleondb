@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"unsafe"
 )
 
@@ -100,7 +101,7 @@ func ValidateSchemaRaw(schemaInput string) (string, error) {
 
 	if cError != nil {
 		errMsg := C.GoString(cError)
-		if os.Getenv("DEBUG") == "1" {
+		if debugEnabled() {
 			fmt.Fprintf(os.Stderr, "DEBUG ValidateSchemaRaw: result=%d, errMsg=%q\n", result, errMsg)
 		}
 		if result == ResultOk {
@@ -109,10 +110,19 @@ func ValidateSchemaRaw(schemaInput string) (string, error) {
 		return errMsg, errors.New("validation failed")
 	}
 
-	if os.Getenv("DEBUG") == "1" {
+	if debugEnabled() {
 		fmt.Fprintf(os.Stderr, "DEBUG ValidateSchemaRaw: cError is nil, result=%d\n", result)
 	}
 	return "", errors.New("unknown error")
+}
+
+func debugEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CHAMELEON_DEBUG"))) {
+	case "1", "true", "sql", "trace", "explain":
+		return true
+	default:
+		return false
+	}
 }
 
 // Version returns the Rust core library version

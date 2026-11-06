@@ -37,6 +37,7 @@ Examples:
 		// Determine schema file or read from stdin
 		var input string
 		var filename string
+		var err error
 
 		if len(args) > 0 {
 			filename = args[0]
@@ -49,28 +50,18 @@ Examples:
 			}
 			input = string(content)
 		} else {
-			// Read from stdin
-			filename = "schema.cham"
 			stat, _ := os.Stdin.Stat()
 			if (stat.Mode() & os.ModeCharDevice) != 0 {
-				// No stdin, look for schema.cham
-				if _, err := os.Stat("schema.cham"); err == nil {
-					content, err := os.ReadFile("schema.cham")
-					if err != nil {
-						if outputJSON {
-							return printJSONError(filename, fmt.Sprintf("Failed to read file: %v", err))
-						}
-						return fmt.Errorf("failed to read schema.cham: %w", err)
-					}
-					input = string(content)
-				} else {
+				filename, input, err = readValidateInput(nil)
+				if err != nil {
 					if outputJSON {
-						return printJSONError(filename, "No input provided and schema.cham not found")
+						return printJSONError("schema.cham", err.Error())
 					}
-					return fmt.Errorf("no input provided")
+					return err
 				}
 			} else {
 				// Read from stdin
+				filename = "stdin"
 				content, err := io.ReadAll(os.Stdin)
 				if err != nil {
 					if outputJSON {
