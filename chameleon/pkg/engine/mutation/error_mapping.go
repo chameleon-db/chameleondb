@@ -160,9 +160,7 @@ func mapUndefinedColumn(pgErr *pgconn.PgError, entity string, values map[string]
 	}
 }
 
-// ============================================================
 // HELPER FUNCTIONS - Extract info from PostgreSQL errors
-// ============================================================
 
 // extractFieldFromDetail extracts field name from error detail
 // Input: "Key (email)=(test@mail.com) already exists."

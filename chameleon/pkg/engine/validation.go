@@ -8,9 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// ============================================================
 // VALIDATION STRATEGY
-// ============================================================
 //
 // ChameleonDB uses a HYBRID validation model:
 //
@@ -32,11 +30,8 @@ import (
 //   - Delegates integrity to DB (UNIQUE, FK handled correctly)
 //   - Provides clear error messages (mapped via error_mapping.go)
 //
-// ============================================================
 
-// ============================================================
 // VALIDATOR CONFIG
-// ============================================================
 
 type ValidatorConfig struct {
 	StrictTypes bool
@@ -50,9 +45,7 @@ func DefaultValidatorConfig() ValidatorConfig {
 	}
 }
 
-// ============================================================
 // VALIDATOR
-// ============================================================
 
 type Validator struct {
 	schema *Schema
@@ -66,9 +59,7 @@ func NewValidator(schema *Schema, config ValidatorConfig) *Validator {
 	}
 }
 
-// ============================================================
 // INSERT VALIDATION
-// ============================================================
 
 func (v *Validator) ValidateInsertInput(
 	entity string,
@@ -123,9 +114,7 @@ func (v *Validator) validateInsertField(
 	return nil
 }
 
-// ============================================================
 // UPDATE VALIDATION
-// ============================================================
 
 func (v *Validator) ValidateUpdateInput(
 	entity string,
@@ -191,9 +180,7 @@ func (v *Validator) ValidateUpdateInput(
 	return nil
 }
 
-// ============================================================
 // DELETE VALIDATION
-// ============================================================
 
 func (v *Validator) ValidateDeleteInput(
 	entity string,
@@ -229,9 +216,7 @@ func (v *Validator) ValidateDeleteInput(
 	return nil
 }
 
-// ============================================================
 // FIELD TYPE VALIDATION
-// ============================================================
 
 func (v *Validator) validateFieldType(
 	field *Field,
@@ -275,9 +260,7 @@ func (v *Validator) validateFieldType(
 	return nil
 }
 
-// ============================================================
 // FORMAT VALIDATION
-// ============================================================
 
 func (v *Validator) validateFieldFormat(
 	fieldName string,
@@ -302,9 +285,7 @@ func (v *Validator) validateFieldFormat(
 	return nil
 }
 
-// ============================================================
 // REQUIRED FIELDS
-// ============================================================
 
 func (v *Validator) validateRequiredFields(
 	ent *Entity,
@@ -325,9 +306,7 @@ func (v *Validator) validateRequiredFields(
 	return nil
 }
 
-// ============================================================
 // HELPERS
-// ============================================================
 
 func (v *Validator) getAvailableFields(ent *Entity) []string {
 	var fields []string

@@ -7,9 +7,7 @@ import (
 	"github.com/chameleon-db/chameleondb/chameleon/internal/ffi"
 )
 
-// ============================================================
 // FFI WRAPPER FOR MUTATION SQL GENERATION
-// ============================================================
 
 // MutationSQL represents generated SQL from FFI
 type MutationSQL struct {

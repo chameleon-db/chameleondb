@@ -74,9 +74,7 @@ Examples:
 			return fmt.Errorf("failed to initialize state tracker: %w", err)
 		}
 
-		// ========================================
 		// SCHEMA VAULT INTEGRATION
-		// ========================================
 
 		// Initialize Schema Vault
 		v := vault.NewVault(workDir)
@@ -248,9 +246,7 @@ Examples:
 			return fmt.Errorf("failed to load current state: %w", err)
 		}
 
-		// ========================================
 		// DETECT SCHEMA CHANGES (Schema Vault)
-		// ========================================
 
 		changed, changesSummary, err := v.DetectChanges(mergedSchemaPath)
 		if err != nil {
@@ -316,9 +312,7 @@ Examples:
 			return nil
 		}
 
-		// ========================================
 		// REGISTER VERSION IN VAULT (before applying)
-		// ========================================
 
 		printInfo("Registering new schema version...")
 

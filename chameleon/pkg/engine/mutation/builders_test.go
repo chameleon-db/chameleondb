@@ -9,9 +9,7 @@ import (
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
 )
 
-// ============================================================
 // TEST HELPERS
-// ============================================================
 
 // testSchema creates a test schema for unit tests
 func testSchema() *engine.Schema {
@@ -70,9 +68,7 @@ func mockConnector() *engine.Connector {
 	return nil
 }
 
-// ============================================================
 // INSERT BUILDER TESTS
-// ============================================================
 
 func TestInsertBuilder_Set(t *testing.T) {
 	schema := testSchema()
@@ -155,9 +151,7 @@ func TestInsertBuilder_Chaining(t *testing.T) {
 	}
 }
 
-// ============================================================
 // UPDATE BUILDER TESTS
-// ============================================================
 
 func TestUpdateBuilder_Set(t *testing.T) {
 	schema := testSchema()
@@ -257,9 +251,7 @@ func TestUpdateBuilder_Chaining(t *testing.T) {
 	}
 }
 
-// ============================================================
 // DELETE BUILDER TESTS
-// ============================================================
 
 func TestDeleteBuilder_Filter(t *testing.T) {
 	schema := testSchema()
@@ -320,9 +312,7 @@ func TestDeleteBuilder_Chaining(t *testing.T) {
 	}
 }
 
-// ============================================================
 // INTERFACE COMPLIANCE TESTS
-// ============================================================
 
 func TestInsertBuilder_ImplementsInterface(t *testing.T) {
 	schema := testSchema()
@@ -348,9 +338,7 @@ func TestDeleteBuilder_ImplementsInterface(t *testing.T) {
 	var _ engine.DeleteMutation = builder
 }
 
-// ============================================================
 // FACTORY INTEGRATION TESTS
-// ============================================================
 
 func TestFactory_Integration(t *testing.T) {
 	schema := testSchema()
@@ -379,9 +367,7 @@ func TestFactory_Integration(t *testing.T) {
 	// Can't execute without real DB, but we verified chaining works
 }
 
-// ============================================================
 // SQL GENERATION TESTS (without execution)
-// ============================================================
 
 func TestInsertBuilder_GenerateSQL(t *testing.T) {
 	schema := testSchema()
@@ -514,9 +500,7 @@ func TestEntityToTableName(t *testing.T) {
 	}
 }
 
-// ============================================================
 // HELPERS
-// ============================================================
 
 func contains(s, substr string) bool {
 	return len(s) > 0 && len(substr) > 0 &&
@@ -539,9 +523,7 @@ func hasSubstring(s, substr string) bool {
 // - SQL generation (without execution)
 // - Interface compliance
 
-// ============================================================
 // IDENTIFIER VALIDATION AND QUOTING
-// ============================================================
 
 func newInsert(entity string, fields map[string]interface{}) *InsertBuilder {
 	b := NewInsertBuilder(testSchema(), mockConnector(), entity)

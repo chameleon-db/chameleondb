@@ -267,9 +267,7 @@ mod tests {
         schema
     }
 
-    // ============================================================
     // HELPER TESTS
-    // ============================================================
 
     #[test]
     fn test_entity_to_table() {
@@ -279,9 +277,7 @@ mod tests {
         assert_eq!(entity_to_table("HTTPServer"), "h_t_t_p_server");
     }
 
-    // ============================================================
     // INSERT TESTS
-    // ============================================================
 
 #[test]
 fn test_insert_single_field() {
@@ -376,9 +372,7 @@ fn test_insert_single_field() {
         assert!(sql.contains("INSERT INTO user"));
     }
 
-    // ============================================================
     // UPDATE TESTS
-    // ============================================================
 
     #[test]
     fn test_update_with_filter() {
@@ -488,9 +482,7 @@ fn test_insert_single_field() {
         assert!(result["error"].as_str().unwrap().contains("Unknown field"));
     }
 
-    // ============================================================
     // DELETE TESTS
-    // ============================================================
 
     #[test]
     fn test_delete_with_filter() {
@@ -557,9 +549,7 @@ fn test_insert_single_field() {
         assert!(result["error"].as_str().unwrap().contains("filter"));
     }
 
-    // ============================================================
     // ERROR HANDLING TESTS
-    // ============================================================
 
     #[test]
     fn test_missing_mutation_type() {
@@ -604,9 +594,7 @@ fn test_insert_single_field() {
         assert!(result["error"].as_str().unwrap().contains("entity"));
     }
 
-    // ============================================================
     // SQL GENERATION TESTS
-    // ============================================================
 
     #[test]
     fn test_insert_sql_format() {
@@ -662,9 +650,7 @@ fn test_insert_single_field() {
         assert!(sql.contains("$"));
     }
 
-    // ============================================================
     // IDENTIFIER VALIDATION TESTS
-    // ============================================================
 
     fn unknown_keys() -> Vec<&'static str> {
         vec![

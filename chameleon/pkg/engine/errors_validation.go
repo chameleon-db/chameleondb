@@ -2,9 +2,7 @@ package engine
 
 import "fmt"
 
-// ============================================================
 // VALIDATION ERRORS (Before SQL generation)
-// ============================================================
 
 // ValidationError: Schema/type/constraint validation failure
 type ValidationError struct {
@@ -28,9 +26,7 @@ func (e *ValidationError) Error() string {
 func (e *ValidationError) Code() string     { return "VALIDATION_ERROR" }
 func (e *ValidationError) IsMutationError() {}
 
-// ============================================================
 // TYPE ERRORS
-// ============================================================
 
 // TypeMismatchError: Value doesn't match field type
 type TypeMismatchError struct {
@@ -54,9 +50,7 @@ func (e *TypeMismatchError) Error() string {
 func (e *TypeMismatchError) Code() string     { return "TYPE_MISMATCH" }
 func (e *TypeMismatchError) IsMutationError() {}
 
-// ============================================================
 // LENGTH/FORMAT ERRORS
-// ============================================================
 
 // LengthExceededError: String exceeds max length
 type LengthExceededError struct {
@@ -100,9 +94,7 @@ func (e *FieldFormatError) Error() string {
 func (e *FieldFormatError) Code() string     { return "FORMAT_ERROR" }
 func (e *FieldFormatError) IsMutationError() {}
 
-// ============================================================
 // BASE ERROR INTERFACES
-// ============================================================
 
 // MutationError is the base interface for all mutation errors
 type MutationError interface {
@@ -111,9 +103,7 @@ type MutationError interface {
 	IsMutationError() // Marker method
 }
 
-// ============================================================
 // CONSTRAINT ERRORS (Data integrity)
-// ============================================================
 
 // ConstraintError: Generic constraint violation
 type ConstraintError struct {
@@ -178,9 +168,7 @@ func (e *NotNullError) Error() string {
 func (e *NotNullError) Code() string     { return "NOT_NULL_VIOLATION" }
 func (e *NotNullError) IsMutationError() {}
 
-// ============================================================
 // FOREIGN KEY ERRORS
-// ============================================================
 
 // ForeignKeyError: Referenced record doesn't exist
 type ForeignKeyError struct {
@@ -240,9 +228,7 @@ func (e *ForeignKeyConstraintError) Error() string {
 func (e *ForeignKeyConstraintError) Code() string     { return "FOREIGN_KEY_CONSTRAINT_VIOLATION" }
 func (e *ForeignKeyConstraintError) IsMutationError() {}
 
-// ============================================================
 // SCHEMA ERRORS
-// ============================================================
 
 // UnknownFieldError: Field doesn't exist in schema
 type UnknownFieldError struct {
@@ -279,9 +265,7 @@ func (e *UnknownEntityError) Error() string {
 func (e *UnknownEntityError) Code() string     { return "UNKNOWN_ENTITY" }
 func (e *UnknownEntityError) IsMutationError() {}
 
-// ============================================================
 // EXECUTION ERRORS (After SQL generation)
-// ============================================================
 
 // NotFoundError: Record to update/delete doesn't exist
 type NotFoundError struct {
@@ -323,9 +307,7 @@ func (e *ConflictError) Error() string {
 func (e *ConflictError) Code() string     { return "CONFLICT" }
 func (e *ConflictError) IsMutationError() {}
 
-// ============================================================
 // SAFETY/PERMISSION ERRORS
-// ============================================================
 
 // SafetyError: Safety guard prevented operation
 type SafetyError struct {
@@ -369,9 +351,7 @@ func (e *AuthorizationError) Error() string {
 func (e *AuthorizationError) Code() string     { return "AUTHORIZATION_DENIED" }
 func (e *AuthorizationError) IsMutationError() {}
 
-// ============================================================
 // HELPER FUNCTIONS
-// ============================================================
 
 // IsMutationError checks if error is a mutation error
 func IsMutationError(err error) bool {
