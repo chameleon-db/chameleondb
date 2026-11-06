@@ -334,3 +334,51 @@ func TestLogEagerIsSilentBelowItsLevel(t *testing.T) {
 
 	assert.Empty(t, buf.String())
 }
+
+func TestLogParamsForSQLShowsValuesExceptSecrets(t *testing.T) {
+	var buf bytes.Buffer
+	dc := &DebugContext{Level: DebugSQL, Writer: &buf}
+
+	sql := `SELECT "id" FROM "users" WHERE "age" >= $1 AND "users"."name" LIKE $2 ESCAPE '\' AND "api_token" = $3 AND "role" != $4`
+	dc.LogParamsForSQL(sql, []SQLParam{
+		NewSQLParam(30),
+		NewSQLParam("%ana%"),
+		NewSQLParam("tok-123"),
+		{Kind: ParamNull},
+	})
+
+	out := buf.String()
+	assert.Contains(t, out, `$1 = 30`)
+	assert.Contains(t, out, `$2 = "%ana%"`)
+	assert.Contains(t, out, `$3 = [REDACTED]`)
+	assert.NotContains(t, out, "tok-123")
+	assert.Contains(t, out, `$4 = NULL`)
+}
+
+func TestLogParamsForSQLRedactsWhenColumnIsUnknown(t *testing.T) {
+	var buf bytes.Buffer
+	dc := &DebugContext{Level: DebugSQL, Writer: &buf}
+
+	dc.LogParamsForSQL(`SELECT $1`, []SQLParam{NewSQLParam("secret-value")})
+
+	assert.NotContains(t, buf.String(), "secret-value")
+	assert.Contains(t, buf.String(), "$1 = [REDACTED]")
+}
+
+func TestLogParamsForSQLEagerParentIDs(t *testing.T) {
+	var buf bytes.Buffer
+	dc := &DebugContext{Level: DebugSQL, Writer: &buf}
+
+	dc.LogParamsForSQL(`SELECT * FROM "posts" WHERE "author_id" = ANY($1)`, []SQLParam{{Kind: ParamParentIDs}})
+
+	assert.Contains(t, buf.String(), "$1 = (parent ids, bound at execution)")
+}
+
+func TestLogParamsForSQLRespectsLevel(t *testing.T) {
+	var buf bytes.Buffer
+	dc := &DebugContext{Level: DebugNone, Writer: &buf}
+
+	dc.LogParamsForSQL(`WHERE "a" = $1`, []SQLParam{NewSQLParam("x")})
+
+	assert.Empty(t, buf.String())
+}

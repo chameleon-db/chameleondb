@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -147,7 +148,7 @@ func (dc *DebugContext) LogEagerSQL(relation, sql string, params []SQLParam) {
 	} else {
 		fmt.Fprintf(dc.Writer, "[SQL] include %s\n%s\n\n", relation, sql)
 	}
-	dc.LogParams(params)
+	dc.LogParamsForSQL(sql, params)
 }
 
 // LogEagerTrace logs the duration and row count of an eager-loading query.
@@ -155,7 +156,72 @@ func (dc *DebugContext) LogEagerTrace(relation string, duration time.Duration, r
 	dc.Log(DebugTrace, "include %s: %v, %d rows", relation, duration, rowCount)
 }
 
-// LogParams logs the parameters of a statement, separately from its SQL text.
+// boundColumnPattern finds "column" <operator> $n and "column" = ANY($n) in
+// generated SQL, where the column is the last quoted identifier before the
+// operator (so "users"."email" yields email).
+var boundColumnPattern = regexp.MustCompile(
+	`"([^"]+)"\s*(?:=\s*ANY\(\$(\d+)\)|(?:!=|<>|<=|>=|=|<|>|(?:NOT\s+)?I?LIKE)\s*\$(\d+))`,
+)
+
+// paramColumns maps each placeholder number of a generated statement to the
+// column it is compared with.
+func paramColumns(sql string) map[int]string {
+	columns := make(map[int]string)
+	for _, match := range boundColumnPattern.FindAllStringSubmatch(sql, -1) {
+		number := match[2]
+		if number == "" {
+			number = match[3]
+		}
+
+		var n int
+		if _, err := fmt.Sscanf(number, "%d", &n); err == nil {
+			columns[n] = match[1]
+		}
+	}
+	return columns
+}
+
+// LogParamsForSQL logs the parameters of a generated statement. The column of
+// each placeholder is read from the SQL, and the values of columns that look
+// like secrets (password, token, hash, ...) are redacted. A parameter whose
+// column cannot be determined is redacted too.
+func (dc *DebugContext) LogParamsForSQL(sql string, params []SQLParam) {
+	if dc.Level < DebugSQL || len(params) == 0 {
+		return
+	}
+
+	columns := paramColumns(sql)
+
+	if dc.ColorOutput {
+		fmt.Fprintf(dc.Writer, "\033[36m[PARAMS]\033[0m\n")
+	} else {
+		fmt.Fprintf(dc.Writer, "[PARAMS]\n")
+	}
+	for i, param := range params {
+		display := "[REDACTED]"
+		if column, known := columns[i+1]; known && !isSensitiveDebugField(column) {
+			display = formatDebugParam(param)
+		}
+		fmt.Fprintf(dc.Writer, "$%d = %s\n", i+1, display)
+	}
+	fmt.Fprintf(dc.Writer, "\n")
+}
+
+func formatDebugParam(param SQLParam) string {
+	switch param.Kind {
+	case ParamNull:
+		return "NULL"
+	case ParamParentIDs:
+		return "(parent ids, bound at execution)"
+	case ParamString:
+		return fmt.Sprintf("%q", param.Value)
+	default:
+		return fmt.Sprintf("%v", param.Value)
+	}
+}
+
+// LogParams logs the parameters of a statement without their values. Use
+// LogParamsForSQL when the SQL is at hand and the columns can be known.
 func (dc *DebugContext) LogParams(params []SQLParam) {
 	if dc.Level < DebugSQL || len(params) == 0 {
 		return
