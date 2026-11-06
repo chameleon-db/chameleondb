@@ -111,3 +111,67 @@ func TestManagerFactoryCreateManagers(t *testing.T) {
 		t.Fatal("expected non-nil config loader")
 	}
 }
+
+func readGitignore(t *testing.T, workDir string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join(workDir, ".chameleon", ".gitignore"))
+	if err != nil {
+		t.Fatalf("failed to read .gitignore: %v", err)
+	}
+	return string(data)
+}
+
+func TestInitializeIgnoresModePasswordVerifier(t *testing.T) {
+	workDir := t.TempDir()
+	if err := NewDirectory(workDir).Initialize(); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	content := readGitignore(t, workDir)
+	for _, rule := range []string{"state/", "journal/", "backups/", "vault/mode_auth.json"} {
+		if !strings.Contains(content, rule+"\n") {
+			t.Fatalf(".gitignore should contain %q, got:\n%s", rule, content)
+		}
+	}
+	if strings.Contains(content, "\nvault/\n") {
+		t.Fatalf("the whole vault must stay versioned, got:\n%s", content)
+	}
+}
+
+func TestEnsureGitignoreUpgradesOldFileWithoutDuplicates(t *testing.T) {
+	workDir := t.TempDir()
+	root := filepath.Join(workDir, ".chameleon")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// What older versions wrote, plus a rule the user added, with no final newline.
+	old := "# ChameleonDB Administrative Files\nstate/\njournal/\nbackups/\n\n!config.yml\nmy-local-notes/"
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(old), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := NewDirectory(workDir)
+	if err := dir.EnsureGitignore(); err != nil {
+		t.Fatalf("EnsureGitignore() error = %v", err)
+	}
+	first := readGitignore(t, workDir)
+
+	if !strings.Contains(first, "my-local-notes/\nvault/mode_auth.json\n") {
+		t.Fatalf("missing rule should be appended on its own line, got:\n%s", first)
+	}
+	if !strings.Contains(first, "!config.yml") {
+		t.Fatalf("existing user content must be kept, got:\n%s", first)
+	}
+	if strings.Count(first, "state/") != 1 {
+		t.Fatalf("existing rules must not be duplicated, got:\n%s", first)
+	}
+
+	if err := dir.EnsureGitignore(); err != nil {
+		t.Fatalf("second EnsureGitignore() error = %v", err)
+	}
+	if second := readGitignore(t, workDir); second != first {
+		t.Fatalf("EnsureGitignore should be idempotent.\nfirst:\n%s\nsecond:\n%s", first, second)
+	}
+}

@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
 	"github.com/spf13/cobra"
@@ -14,7 +13,8 @@ var validateCmd = &cobra.Command{
 	Short: "Validate a ChameleonDB schema",
 	Long: `Validate a schema file for syntax and semantic errors.
 
-If no file is specified, looks for 'schema.cham' in current directory.
+If no file is specified, validates 'schema.cham' in the current directory
+or, when there is none, the schemas configured in .chameleon.yml (schema.paths).
 
 Examples:
   chameleon validate
@@ -24,27 +24,15 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		eng := engine.NewEngineForCLI()
 
-		// Determine schema file
-		schemaFile := "schema.cham"
-		if len(args) > 0 {
-			schemaFile = args[0]
-		}
-
-		// Check file exists
-		if _, err := os.Stat(schemaFile); os.IsNotExist(err) {
-			return fmt.Errorf("schema file not found: %s", schemaFile)
-		}
-
-		printInfo("Validating %s...", schemaFile)
-
-		// Read file content
-		content, err := os.ReadFile(schemaFile)
+		schemaLabel, content, err := readValidateInput(args)
 		if err != nil {
-			return fmt.Errorf("failed to read file: %w", err)
+			return err
 		}
+
+		printInfo("Validating %s...", schemaLabel)
 
 		// Validate using LoadSchemaFromStringRaw
-		_, rawErr, err := eng.LoadSchemaFromStringRaw(string(content))
+		_, rawErr, err := eng.LoadSchemaFromStringRaw(content)
 
 		if err != nil {
 			printError("Validation failed")

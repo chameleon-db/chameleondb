@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/chameleon-db/chameleondb/chameleon/internal/config"
 	"github.com/chameleon-db/chameleondb/chameleon/internal/journal"
@@ -53,20 +54,69 @@ func (d *Directory) Initialize() error {
 	return nil
 }
 
+// gitignoreRules are the entries .chameleon/.gitignore must always contain.
+// Paths are relative to .chameleon/.
+var gitignoreRules = []string{
+	"state/",
+	"journal/",
+	"backups/",
+	// Verifier of the mode password: credential material that must not be
+	// committed. The rest of vault/ stays versioned (integrity history).
+	"vault/mode_auth.json",
+}
+
 // createGitignore creates .chameleon/.gitignore
 func (d *Directory) createGitignore() error {
+	return d.EnsureGitignore()
+}
+
+// EnsureGitignore creates .chameleon/.gitignore, or appends the rules an
+// existing one is missing, so projects created by an older version also stop
+// tracking credential files. Lines already present are left untouched.
+// Note that git keeps tracking a file that was committed before it was ignored.
+func (d *Directory) EnsureGitignore() error {
+	if err := os.MkdirAll(d.rootDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .chameleon directory: %w", err)
+	}
+
 	gitignorePath := filepath.Join(d.rootDir, ".gitignore")
-	gitignoreContent := `# ChameleonDB Administrative Files
-# State: Local to each developer
-state/
-journal/
-backups/
+	existing := ""
+	if data, err := os.ReadFile(gitignorePath); err == nil {
+		existing = string(data)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read .gitignore: %w", err)
+	}
 
-# Keep config.yml (versioned)
-!config.yml
-`
+	present := make(map[string]bool)
+	for _, line := range strings.Split(existing, "\n") {
+		present[strings.TrimSpace(line)] = true
+	}
 
-	return os.WriteFile(gitignorePath, []byte(gitignoreContent), 0644)
+	var missing []string
+	for _, rule := range gitignoreRules {
+		if !present[rule] {
+			missing = append(missing, rule)
+		}
+	}
+	if existing != "" && len(missing) == 0 {
+		return nil
+	}
+
+	var out strings.Builder
+	if existing == "" {
+		out.WriteString("# ChameleonDB Administrative Files\n")
+		out.WriteString("# State and journal are local to each developer\n")
+	} else {
+		out.WriteString(existing)
+		if !strings.HasSuffix(existing, "\n") {
+			out.WriteString("\n")
+		}
+	}
+	for _, rule := range missing {
+		out.WriteString(rule + "\n")
+	}
+
+	return os.WriteFile(gitignorePath, []byte(out.String()), 0644)
 }
 
 // GetPaths returns all directory paths

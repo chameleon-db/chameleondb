@@ -68,16 +68,51 @@ func showSchemaStatus(v *vault.Vault) {
 		fmt.Printf("  Last modified:   %s\n", formatTimeSince(entry.Timestamp))
 	}
 
-	// Check if schema file matches current version
-	schemaPath := "schema.cham"
-	if _, err := os.Stat(schemaPath); err == nil {
-		changed, _, _ := v.DetectChanges(schemaPath)
-		if changed {
-			fmt.Println("  Status:          ⚠️  Schema modified (not registered)")
-		} else {
-			fmt.Println("  Status:          ✓ Up to date")
-		}
+	// Compare the project schemas (as 'migrate' merges them) with the current version
+	workDir, err := os.Getwd()
+	if err != nil {
+		fmt.Printf("  Status:          ⚠️  Could not get working directory: %v\n", err)
+		return
 	}
+
+	merged, err := loadProjectSchema(workDir)
+	if err != nil {
+		fmt.Printf("  Status:          ⚠️  Could not read project schemas: %v\n", err)
+		return
+	}
+
+	changed, err := schemaDiffersFromVault(v, merged)
+	if err != nil {
+		fmt.Printf("  Status:          ⚠️  Could not compare schema: %v\n", err)
+		return
+	}
+	if changed {
+		fmt.Println("  Status:          ⚠️  Schema modified (not registered)")
+	} else {
+		fmt.Println("  Status:          ✓ Up to date")
+	}
+}
+
+// schemaDiffersFromVault reports whether the merged schema differs from the
+// version the vault has registered. The vault hashes files, so the content is
+// written to a temporary one.
+func schemaDiffersFromVault(v *vault.Vault, merged string) (bool, error) {
+	tmp, err := os.CreateTemp("", "chameleon-status-*.cham")
+	if err != nil {
+		return false, err
+	}
+	defer os.Remove(tmp.Name())
+
+	if _, err := tmp.WriteString(merged); err != nil {
+		tmp.Close()
+		return false, err
+	}
+	if err := tmp.Close(); err != nil {
+		return false, err
+	}
+
+	changed, _, err := v.DetectChanges(tmp.Name())
+	return changed, err
 }
 
 func showVaultStatus(v *vault.Vault) {
