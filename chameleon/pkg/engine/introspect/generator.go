@@ -20,7 +20,7 @@ func GenerateChameleonSchema(tables []TableInfo) (string, error) {
 		sb.WriteString(fmt.Sprintf("entity %s {\n", entityName))
 
 		for _, col := range table.Columns {
-			fieldType := mapColumnType(col.Type)
+			fieldType, mapped := mapColumnType(col.Type)
 			sb.WriteString(fmt.Sprintf("    %s: %s", col.Name, fieldType))
 
 			// Add constraints
@@ -34,7 +34,14 @@ func GenerateChameleonSchema(tables []TableInfo) (string, error) {
 				sb.WriteString(" nullable")
 			}
 
-			sb.WriteString(",\n")
+			sb.WriteString(",")
+			if !mapped {
+				sb.WriteString(fmt.Sprintf(
+					" // WARNING: PostgreSQL type %q has no ChameleonDB equivalent; mapped to %s, review it",
+					col.Type, fieldType,
+				))
+			}
+			sb.WriteString("\n")
 		}
 
 		sb.WriteString("}\n\n")
@@ -65,33 +72,37 @@ func GenerateChameleonSchema(tables []TableInfo) (string, error) {
 	return sb.String(), nil
 }
 
-// mapColumnType converts SQL type to ChameleonDB type
-func mapColumnType(sqlType string) string {
-	// PostgreSQL types mapping
+// mapColumnType converts a PostgreSQL type, as reported by
+// information_schema.columns.data_type, to a ChameleonDB type.
+//
+// The second result is false when the type has no ChameleonDB equivalent and
+// "string" was used as a placeholder, so the caller can warn the user.
+func mapColumnType(sqlType string) (string, bool) {
 	typeMap := map[string]string{
-		"uuid":                     "uuid",
-		"text":                     "string",
-		"varchar":                  "string",
-		"character varying":        "string",
-		"integer":                  "int",
-		"bigint":                   "int",
-		"smallint":                 "int",
-		"decimal":                  "decimal",
-		"numeric":                  "decimal",
-		"real":                     "float",
-		"double precision":         "float",
-		"boolean":                  "bool",
-		"timestamp":                "timestamp",
-		"timestamp with time zone": "timestamp",
-		"date":                     "timestamp",
+		"uuid":                        "uuid",
+		"text":                        "string",
+		"varchar":                     "string",
+		"character varying":           "string",
+		"character":                   "string",
+		"integer":                     "int",
+		"bigint":                      "int",
+		"smallint":                    "int",
+		"decimal":                     "decimal",
+		"numeric":                     "decimal",
+		"real":                        "float",
+		"double precision":            "float",
+		"boolean":                     "bool",
+		"timestamp":                   "timestamp",
+		"timestamp without time zone": "timestamp",
+		"timestamp with time zone":    "timestamp",
+		"date":                        "timestamp",
 	}
 
 	if mapped, ok := typeMap[sqlType]; ok {
-		return mapped
+		return mapped, true
 	}
 
-	// Default fallback
-	return "string"
+	return "string", false
 }
 
 // toEntityName converts table name to entity name
