@@ -1,426 +1,176 @@
-# ChameleonDB v1.0-alpha Release
+# ChameleonDB releases
 
-**Release Date:** February 25, 2026  
-**Status:** Alpha (early adopter preview)
+**Current release: [v1.1.2-alpha](https://github.com/chameleon-db/chameleondb/releases/tag/v1.1.2-alpha)** (2026-11-06)
 
----
+This page is the overview of the current release: what it contains, what works, what does not, how to install it and what we are working on. The complete, version-by-version list of changes is the [CHANGELOG](CHANGELOG.md).
 
-## 🎉 Overview
+## At a glance
 
-ChameleonDB v1.0-alpha introduces **Schema Vault** and **Integrity Modes** — bringing explicit schema governance to the database layer.
+| | |
+|---|---|
+| **Stage** | Alpha. Syntax, APIs and behavior can still change. Do not use it with untrusted input or production data yet. |
+| **Database** | PostgreSQL only (integration tests run on 16; `default uuid()` needs 13 or newer, or `pgcrypto`) |
+| **Platforms** | Linux x86-64, macOS (universal), Windows x86-64 |
+| **Components** | Rust core (parser, type checker, SQL and migration generation), Go runtime and CLI |
+| **License** | Apache 2.0 |
+| **Security** | Report vulnerabilities privately, see [SECURITY.md](SECURITY.md) |
+| **Documentation** | [docs.chameleondb.dev](https://docs.chameleondb.dev) |
 
-This release transforms ChameleonDB from a type-safe query builder into a **schema-governed database platform** with built-in integrity guarantees.
+## In this release: v1.1.2-alpha
 
----
+A maintenance release with fixes to mutations, debugging and the CLI. It does not change the schema language or the migrations.
 
-## 🚀 What's New
+### Mutations
 
-### Schema Vault
+- Deleting a record that still has children returns `ForeignKeyConstraintError`, with the dependent table. Before, it returned a `ForeignKeyError` that said the referenced record did not exist.
+- `DELETE` filters are generated in a fixed order, as `UPDATE` already was.
+- A `nil` filter value now means `IS NULL` (`eq`) or `IS NOT NULL` (`neq`, `ne`). Before, it produced `= NULL`, which never matches.
+- `SafetyError` no longer suggests `ForceUpdateAll` and `ForceDeleteAll`, which do not exist.
 
-**Versioned, immutable schema storage with cryptographic integrity:**
+### Debugging
 
-- ✅ Automatic version registration on every migrate
-- ✅ SHA256 hash verification (tamper detection)
-- ✅ Immutable snapshots (once registered, never modified)
-- ✅ Lineage tracking (parent versions)
-- ✅ Append-only integrity log
-- ✅ Zero-config (auto-initializes on first migrate)
+- `CHAMELEON_DEBUG` works: `1`, `true` or `sql` print the SQL and its parameters; `trace` adds durations and row counts; `explain` is the most verbose. It applies to queries and mutations.
+- `.Debug()` on a query with `Include()` prints the eager-loading queries as well.
+- Parameter values of columns that look like secrets (`password`, `token`, `secret`, `hash`, `api_key`, ...) are shown as `[REDACTED]`.
+- A query's SQL is generated once per execution instead of twice.
 
-**Usage:**
-```bash
-# Initialize project (creates vault)
-chameleon init
+### CLI and vault
 
-# Apply migration (auto-registers v001)
-chameleon migrate --apply
+- `chameleon status` and `chameleon validate` read the schema files configured in `.chameleon.yml` (`schema.paths`). Before, projects created with `init` (schemas in `schemas/`) were not checked.
+- `.chameleon/.gitignore` ignores `vault/mode_auth.json`, the verifier of the mode password.
+- `chameleon version` prints a single line.
+- The install script works when piped from `curl` and its closing message no longer repeats the product name.
 
-# View version history
-chameleon journal schema
+### Behavior changes
 
-# Verify integrity
-chameleon verify
-```
+Read these before upgrading from v1.1.1:
 
----
+| Change | What to do |
+|---|---|
+| Mutation `like` and `ilike` now mean "contains", as in queries: `"ana"` matches `%ana%`. `%`, `_` and `\` in the value match literally. | If you passed your own `%` pattern, remove the wildcards. |
+| A `nil` filter value in a mutation is `IS NULL` or `IS NOT NULL`. Any other operator with `nil` returns an error. | Check filters that passed `nil` and relied on matching nothing. |
+| `vault/mode_auth.json` is ignored by git for new and upgraded projects. A file that is already committed stays tracked. | Run `git rm --cached .chameleon/vault/mode_auth.json` and commit. |
+| Debug output redacts values of columns that look like secrets. | None. Other values are still printed, so do not enable debug output where logs hold personal data. |
 
-### Integrity Modes
+No migration is needed. Existing tables are never altered by ChameleonDB.
 
-**Unix-style protection rings for schema governance:**
+## What works today
 
-| Mode | Description | Schema Changes |
-|------|-------------|----------------|
-| **readonly** (R3) | Production default | ❌ Blocked |
-| **standard** (R2) | Development teams | ✅ Controlled |
-| **privileged** (R1) | DBAs | ✅ Direct (logged) |
-| **emergency** (R0) | Incident recovery | ✅ No checks (audited) |
+| Area | State | Notes |
+|---|---|---|
+| Schema language (`.cham`) | Working | Entities, fields, relations, defaults (`uuid()`, `now()`, literals), `unique`, `nullable`, `vector(N)`, arrays |
+| Type checker (`validate`, `check`) | Working | Rejects invalid primary keys, `vector(0)`, mismatched has-many keys and cycles between entities |
+| Migrations (`migrate`) | Partial | Create-only: `CREATE TABLE IF NOT EXISTS` in a deterministic order. Existing tables are left as they are. |
+| Schema Vault | Working | Versions with a SHA-256 hash of the schema source and the parent version, stored locally. Detects edits made outside the tool. |
+| Integrity modes | Working | `readonly`, `standard`, `privileged`, `emergency`. They govern what the CLI allows, not database permissions. |
+| Journal | Working | Operation log with `journal last`, `migrations`, `errors`, `schema` and `search` |
+| Introspection | Working | Generates a schema from PostgreSQL and warns about columns it cannot map |
+| Go data-access layer | Working, frozen | Query and mutation builders with eager loading, write guards (no update or delete without a filter) and typed constraint errors. Scope under review ([ADR-0007](docs/adr/0007-data-access-layer-scope.md)). |
+| Annotations (`@cache`, `@olap`, `@vector`, `@ml`) | Parsed only | They have no effect today |
+| Other databases | Not available | Only PostgreSQL |
 
-**Usage:**
-```bash
-# Set password for mode upgrades
-chameleon config auth set-password
+### What the guarantees mean
 
-# Upgrade mode (requires password)
-chameleon config set mode=standard
+- The vault detects changes made to its files outside the tool. It does not stop someone who can edit both the files and their hashes.
+- Integrity modes do not replace database permissions. A user with direct access to the database is not restricted by them.
+- The schema hash is computed over the source text, so formatting changes alter it. A canonical form is planned ([ADR-0005](docs/adr/0005-canonical-schema-digest.md)).
 
-# Check current mode
-chameleon status
-```
+## Known limitations
 
-**Features:**
-- ✅ Password-protected mode upgrades
-- ✅ Automatic enforcement on migrate
-- ✅ Downgrades don't require password
-- ✅ Complete audit trail of mode changes
+- **No schema diff.** `migrate` creates missing tables only. Changes to existing tables (new columns, type changes) must be applied by hand.
+- **No rollback and no backups.** `backup_on_migrate` exists as a setting but is not implemented, and `migrate` says so.
+- **No transactions** in the data-access layer; each mutation is its own statement.
+- **Types:** `int` maps to a 32-bit `INTEGER` and `timestamp` to `TIMESTAMP` without time zone. Both are planned to change; see the plan below.
+- **Table names** are derived differently by the migration generator and the mutation layer for some multi-word or irregular names. A fix that makes them identical is planned and will come with migration notes.
+- **Filters:** the `in` operator, `OR` and `time.Time` values are not supported. Pass dates as strings.
+- **Install script:** it does not verify checksums, and it requests `chameleon-darwin-<arch>.tar.gz`, while releases publish `chameleon-macos-universal.tar.gz` and only a Linux x86-64 archive. On macOS or on Linux ARM, download the archive by hand or build from source.
+- **Checksums** are generated during the release but not yet attached to it.
+- **Developer servers** (`playground`, `dashboard`) are for local use only. Do not expose them to a network.
 
----
+## What we are working on
 
-### IdentityMap
+Work is organised by horizon, not by date. The board and the issues are the source of truth: [project board](https://github.com/orgs/chameleon-db/projects/1) and [issues](https://github.com/chameleon-db/chameleondb/issues). What follows is direction, not a commitment.
 
-**Automatic object deduplication in memory:**
+| Horizon | Goal | Examples |
+|---|---|---|
+| **H0, trustworthy base** | The existing code is predictable and its claims match reality | CI on every pull request (build, lint, tests, `cargo audit`, `govulncheck`), FFI hardening, release checksums, consistent table names, types phase 1 (`int` as 64-bit, `timestamp` as an instant, `date`, `json`), loopback-only developer servers |
+| **H1a, observe and drift** | Point the tool at a PostgreSQL database with read-only access and see how it differs from a reference | Canonical schema digest, faithful introspection of a supported subset, baseline snapshots, `drift` command with text and JSON reports |
+| **H1b, controlled change** | Review each change with its risk before it is applied | Risk-classified change plans, gates for destructive changes, verification of the control level |
+| **Later** | Beyond PostgreSQL and a single team | Additional backends, offline-first compatibility between schema revisions |
 
-- ✅ Deduplicates objects in Include queries
-- ✅ Memory savings: ~99% for large result sets
-- ✅ Session-based (per-query isolation)
-- ✅ Zero configuration
+See the [product definition](docs/product-definition.md) for scope and the [architecture overview](docs/architecture/overview.md) for how today's code relates to the target.
 
-**Example:**
-```go
-// User with 100 posts
-result := db.Query("User").
-    Include("posts").
-    Execute(ctx)
+## Install
 
-// Without IdentityMap: User object duplicated 100 times
-// With IdentityMap: User object appears only once
-```
-
----
-
-### Error Mapping
-
-**PostgreSQL errors mapped to ChameleonDB types with suggestions:**
-
-```go
-// Unique constraint violation
-❌ UniqueConstraintError: Field 'email' must be unique
-   Value: test@mail.com already exists
-   Suggestion: Use a different value or update the existing record
-
-// Foreign key violation
-❌ ForeignKeyError: Invalid reference
-   Field: author_id
-   Referenced: users(id=uuid-999)
-   Suggestion: Ensure the referenced user exists
-
-// NOT NULL violation
-❌ NotNullError: Field 'email' cannot be null
-   Suggestion: Provide a value for email (this field is required)
-```
-
-**Supported errors:**
-- `UniqueConstraintError` (23505)
-- `ForeignKeyError` (23503)
-- `NotNullError` (23502)
-- `ConstraintError` (23514)
-- `UnknownFieldError` (42703)
-
----
-
-### CLI Improvements
-
-**New commands:**
+### Linux
 
 ```bash
-# Schema Vault
-chameleon journal schema           # View version history
-chameleon journal schema v002      # View specific version
-chameleon verify                   # Verify integrity
-chameleon status                   # Overview
-
-# Mode Management
-chameleon config get mode          # View current mode
-chameleon config set mode=MODE     # Change mode
-chameleon config auth set-password # Set mode password
-```
-
-**Improved migrate:**
-- ✅ Auto-initializes vault on first run
-- ✅ Integrity verification before every migrate
-- ✅ Detects schema changes via hash
-- ✅ Registers new version before applying
-- ✅ Retry failed migrations automatically
-- ✅ Mode enforcement (readonly blocks changes)
-
----
-
-## 📊 Stats
-
-**Code:**
-- Rust: 94 tests ✅
-- Go: 80 tests ✅
-- Integration: 30 tests ✅
-- **Total: 204 tests passing**
-
-**Features:**
-- Schema Vault
-- Integrity Modes (4 modes)
-- IdentityMap
-- Error mapping (6 error types)
-- 13 CLI commands
-
-**Lines of code:**
-- Rust core: ~8,500 lines
-- Go runtime: ~6,200 lines
-- Total: ~14,700 lines
-
----
-
-## 🔧 Breaking Changes
-
-### ⚠️ Mode names changed
-
-**Old (pre-v1.0):**
-- `dragon` → `readonly`
-- `eagle` → `standard`
-- `lion` → `privileged`
-- `phoenix` → `emergency`
-
-**Migration:**
-```bash
-# Update .chameleon/vault/manifest.json
-{
-  "integrity_mode": "readonly"  // was "dragon"
-}
-```
-
-### ⚠️ First migrate creates vault
-
-**Before:** Vault had to be manually initialized  
-**Now:** Auto-creates on first `chameleon migrate`
-
-**No action required** - existing projects will auto-upgrade.
-
----
-
-## 🐛 Bug Fixes
-
-- Fixed: Dragon mode not enforcing on migrate
-- Fixed: rows.Next() false positive in mutations
-- Fixed: Error silencing in Execute methods
-- Fixed: UUID primary key handling
-- Fixed: Table naming (PascalCase → snake_case)
-
----
-
-## 📚 Documentation
-
-**Updated:**
-- README with Schema Vault section
-- Quick Start guide
-- CLI reference
-- Integrity Modes guide
-
-**New:**
-- RELEASE notes (this file)
-- Migration guide (v0.x → v1.0)
-- Schema Vault architecture docs
-
----
-
-## 🚧 Known Limitations
-
-**v1.0-alpha limitations:**
-
-- **No rollback** - Schema Vault tracks versions but rollback not implemented yet (coming in v1.1)
-- **Eagle mode not fully implemented** - Proposal/approval workflow coming in v1.1
-- **Single backend** - Only PostgreSQL supported (MySQL/DuckDB coming in v1.2)
-- **No distributed vault** - Multi-node support coming in v1.5
-
-**These are intentional scope decisions for alpha release.**
-
----
-
-## 🎯 What's Next
-
-### v1.1 (March 2026)
-
-- Schema Vault rollback
-- Eagle mode (proposal/approval workflow)
-- Database introspection
-- Transaction support
-- Performance benchmarks
-
-### v1.2 (Q2 2026)
-
-- Additional backends (MySQL, DuckDB)
-- Code generation
-- Multi-language bindings
-
----
-
-## 📦 Installation
-
-### From Release
-
-```bash
-# Auto-install (macOS | Linux)
 curl -sSL https://chameleondb.dev/install | sh
-
-# Or manual installation (Linux example)
-curl -LO https://github.com/chameleon-db/chameleondb/releases/download/v1.0-alpha/chameleon-linux-amd64
-chmod +x chameleon-linux-amd64
-sudo mv chameleon-linux-amd64 /usr/local/bin/chameleon
 ```
 
-### From Source
+The script installs `chameleon`, `libchameleon.so`, the C header and a `pkg-config` file. It asks before reinstalling. Set `CHAMELEON_INSTALL_DIR`, `CHAMELEON_LIB_DIR`, `CHAMELEON_INCLUDE_DIR` or `CHAMELEON_PKGCONFIG_DIR` to change the destinations.
+
+### macOS
+
+Download `chameleon-macos-universal.tar.gz` from the [release page](https://github.com/chameleon-db/chameleondb/releases/latest), extract it, and copy the binary and the library into your `PATH` and library path. The install script does not support this archive name yet (see the limitations).
+
+### Windows
+
+Download the archive from [chameleondb.dev/windows](https://www.chameleondb.dev/windows) or from the release page (`chameleon-windows-amd64.tar.gz`). It contains two files that must stay together:
+
+- `chameleon.exe`
+- `chameleon.dll`
+
+Put them in a folder (for example `c:\chameleon\`), add that folder to `Path` (System Settings, Environment Variables), then open a new terminal.
+
+### From source
 
 ```bash
 git clone https://github.com/chameleon-db/chameleondb.git
 cd chameleondb/chameleon
-make build
-sudo make install
+make build            # builds the Rust core first, then bin/chameleon
 ```
 
-### Verify Installation
+You need Go 1.25.6 or newer, a stable Rust toolchain, a C compiler and `make`.
+
+### Verify
 
 ```bash
-chameleon --version
-# Output: chameleon v1.0-alpha
+chameleon version
+# ChameleonDB v1.1.2-alpha
 ```
 
-## Windows Install
-ChameleonDB is distributed as a portable binary. It does not require an installer.
-
-### 1. Download
-
-Download the compressed `.gz` file from [here](https://www.chameleondb.dev/windows)
-
-### 2. Extract
-
-Extract the `.gz` file (WinRAR, WinZip, 7zip, or similar). You will obtain two files:
-
-* `chameleon.exe`
-* `chameleon.dll`
-
-> ⚠️ Both files must be kept together.
-
-### 3. Move to a safe folder
-
-Create a folder for ChameleonDB, for example:
+## Try it
 
 ```bash
-c:\chameleon\
-```
-
-Move **both files** (`.exe` and `.dll`) into that folder.
-
-### 4. Add to PATH
-
-To be able to run `chameleon` from any console:
-
-1. Open **System Settings** -> **Environment Variables**
-2. Under **System variables**, select `Path` -> **Edit**
-3. Add the path:
-
-```bash
-c:\chameleon\
-# Or the path you chose
-```
-
-4. Accept all changes
-
-> 📌 Close and reopen the terminal for the change to take effect.
-
-### 5. Verify installation
-
-Open a new terminal (CMD or PowerShell) and run:
-```bash
-chameleon --version
-# Output: chameleon v1.0-alpha
-```
-
----
-
-## 🧪 Testing
-
-We encourage early adopters to test v1.0-alpha in **non-production** environments.
-
-**To try it:**
-
-```bash
-# Create test project
-mkdir test-chameleondb
-cd test-chameleondb
-
-# Initialize
+mkdir test-chameleondb && cd test-chameleondb
 chameleon init
-
-# Create simple schema
-cat > schema.cham <<EOF
-entity User {
-    id: uuid primary,
-    email: string unique,
-    name: string,
-}
-EOF
-
-# Apply migration
+# edit schemas/example.cham, or write your own entities
+chameleon validate
+chameleon migrate --dry-run           # preview the SQL
+chameleon config auth set-password    # recommended before changing the mode
+chameleon config set mode=standard    # new vaults start in readonly
 chameleon migrate --apply
-
-# View vault
-chameleon journal schema
 chameleon status
-chameleon verify
+chameleon journal schema
 ```
 
-**Please report:**
-- Bugs: [GitHub Issues](https://github.com/chameleon-db/chameleondb/issues)
-- Feature requests: [Discussions](https://github.com/chameleon-db/chameleondb/discussions)
-- Feedback: [Discord](https://chameleondb.dev/discord)
+Use a test database. See the [documentation](https://docs.chameleondb.dev) for the schema language, queries, mutations and the security model.
 
----
+## Release history
 
-## 💬 Community
+| Version | Date | Highlights |
+|---|---|---|
+| [v1.1.2-alpha](CHANGELOG.md) | 2026-11-06 | Mutation filter fixes (`IS NULL`, `like` as contains), foreign-key delete error, `CHAMELEON_DEBUG`, debug of eager queries, CLI reads `schema.paths`, `mode_auth.json` ignored by git |
+| [v1.1.1-alpha](CHANGELOG.md) | 2026-11-06 | Stricter `validate`, self-referential relations, `introspect` fixes and warnings, journal rewrite and `journal search` |
+| [v1.1.0-alpha](CHANGELOG.md) | 2026-11 | Security hardening of query and mutation generation (GHSA-2r6g-424r-6xmr), `migrate` is create-only and no longer drops tables, deterministic DDL |
+| v1.0-alpha | 2026-02-25 | Schema Vault, integrity modes, identity map for eager loading, typed database errors, `status`, `verify` and `journal schema` |
 
-**Get involved:**
+Earlier pre-1.0 releases are in the [CHANGELOG](CHANGELOG.md). Releases before v1.1.0-alpha have a security issue in query generation; upgrade if you run one.
 
-- **GitHub Discussions**: [Share ideas](https://github.com/chameleon-db/chameleondb/discussions)
-- **Discord**: [Join our server](https://chameleondb.dev/discord)
-- **Twitter**: [@chameleondb](https://twitter.com/chameleondb)
+## Feedback
 
-**Early adopter program:**
-
-If you're testing v1.0-alpha in a real project, let us know! We're offering:
-- Direct support in Discord
-- Priority for feature requests
-- Recognition in v1.0 stable release notes
-
----
-
-## 🙏 Acknowledgments
-
-**Contributors to v1.0-alpha:**
-
-- Daniel Peralta ([@dperalta](https://github.com/dperalta)) - Core architecture & implementation
-- Community feedback from early testers
-
-**Special thanks:**
-
-- Early adopters who tested pre-alpha builds
-- Contributors who reported bugs and suggested improvements
-
----
-
-## 📄 License
-
-ChameleonDB is licensed under the **Apache License 2.0**.
-
----
-
-<div align="center">
-
-**Ready to try v1.0-alpha?**
-
-[Download](https://github.com/chameleon-db/chameleondb/releases/tag/v1.0-alpha) • [Documentation](https://chameleondb.dev/docs) • [Examples](https://github.com/chameleon-db/chameleon-examples)
-
-</div>
+- Bugs and requests: [GitHub Issues](https://github.com/chameleon-db/chameleondb/issues)
+- Vulnerabilities: privately, through the [security advisory form](https://github.com/chameleon-db/chameleondb/security/advisories/new)
+- Questions and chat: [Discord](https://chameleondb.dev/discord)
+- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
