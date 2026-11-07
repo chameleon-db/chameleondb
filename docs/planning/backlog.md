@@ -73,12 +73,12 @@ Add `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue and pull reque
 - milestone: H0
 
 Add and link the current versions of:
-- `docs/adr/`
-- `docs/product-definition.md`
-- `docs/vision-and-foundations.md`
-- `docs/architecture/overview.md`
-- `docs/cli-reference.md`
-- `IMPLEMENTATION_PLAN.md`
+- `docs/adr/` (done)
+- `docs/product-definition.md` (done)
+- `docs/vision-and-foundations.md` (done)
+- `docs/architecture/overview.md` (done)
+- `docs/cli-reference.md` (done)
+- `IMPLEMENTATION_PLAN.md` (missing: add it, or drop it from the README and this list)
 
 Add links from the README. Confirm final document names and locations before creating duplicate copies.
 
@@ -98,23 +98,28 @@ Run a claims review ([ADR-0002](../adr/0002-honest-claims-policy.md)) over the R
 
 **Scope.** Remove calendar dates from the roadmap; align Go and Rust versions with `go.mod` and the build; describe integrity guarantees with their real scope (detects changes made outside the tool; not resistant to a privileged local user); remove references to methods that do not exist; add a short notice that the alpha is not recommended for untrusted input or production use until hardening work is finished.
 
+**Status.** README done (alpha notice, link to `SECURITY.md`, no calendar dates). `docs/en` still has pre-review claims (for example "defense-in-depth", "immutable snapshots" in `docs/en/SECURITY.md`) and describes `backup_on_migrate` and rollback, which are not implemented. Resolved by E0-09 if the reference docs leave the repository; otherwise review them here.
+
 **Acceptance criteria**
 - Given each behavioral statement in the README, when I look for the code and test that support it, then I find them or the statement has been softened or removed.
 - Given the README roadmap, when I read it, then it contains no calendar dates.
 - Given the README, when I read the status section, then it states that the project is alpha and links to `SECURITY.md`.
 - Given a public security or integrity claim, when I review it, then its scope and limitations are explicit.
 
-### [E0-05] Decide the fate of the Spanish documentation
+### [E0-05] Decide where the reference documentation lives
 
 - type: task
 - epic: E0
-- labels: type:task, area:docs, priority:P2
-- milestone: H1a
+- labels: type:task, area:docs, priority:P1
+- milestone: H0
 
-`docs/sp` duplicates `docs/en`. Decide to archive it, remove it, or keep it as a translation generated from the English source.
+The reference docs exist twice: `docs/en` and `docs/sp` in the repository, and the site at docs.chameleondb.dev (separate repository). Choose one source of truth: (a) move the site's `.mdx` into this repository and point the site build to that folder, or (b) keep the site repository as the only source and reduce `docs/` to contributor-facing material (ADRs, architecture, planning) plus a pointer to the site.
 
 **Acceptance criteria**
-- Given `docs/`, when I look at the Spanish content, then it is either removed, clearly marked as an outdated archive, or generated from the English source with instructions.
+- Given the repository, when I look for reference documentation (schema, queries, mutations, CLI, security), then there is exactly one maintained copy.
+- Given a pull request that changes behavior, when I read the PR template, then it says where the documentation change goes.
+- Given `docs/sp`, when I look for it, then it is removed, or marked as an outdated archive, or generated from the English source.
+- Given the README, when I follow the documentation links, then they point to the chosen source.
 
 ### [E0-06] Reconcile versions and the changelog
 
@@ -242,6 +247,8 @@ Generated SQL, column lists and listings must not depend on hash-map iteration o
 
 This issue covers deterministic output of existing generation paths. Semantic canonicalization and digest identity are handled by E1-12 and E1-13.
 
+**Status.** Migration DDL is deterministic (primary key first, other columns alphabetical) and covered by tests. Still open: the column order of a query without `Select()` is not stable, and listing operations need the same check.
+
 **Acceptance criteria**
 - Given the same supported schema and query, when SQL is generated 100 times, then the output is byte-identical.
 - Given the same schema, when DDL is generated, then entities and fields appear in a stable, documented order.
@@ -290,6 +297,7 @@ The playground and dashboard HTTP servers must not be reachable from the network
 - Given token generation and validation, when I review the implementation, then tokens are generated securely, are not exposed in logs, and are compared safely.
 - Given a non-loopback binding, when it is explicitly configured, then the behavior and security implications are documented.
 - Given the repository, when I inspect available servers and endpoints, then the issue covers every applicable developer server.
+- Given each developer server command (`dashboard serve`, `playground sql serve` and any other), when it starts with default flags, then it binds to `127.0.0.1`; today at least one default address does not state a host.
 
 ### [E1-07] Verify downloads in the install script and publish checksums
 
@@ -326,6 +334,8 @@ This issue should not block H1a unless the vault or its administrative interface
 - epic: E1
 - labels: type:task, area:ci, priority:P0
 - milestone: H0
+
+**Status.** Only `coverage.yml` runs on pull requests (coverage, Go integration). There is no `cargo fmt`, `clippy`, `go vet`, `gofmt`, `cargo audit` or `govulncheck` step, and `coverage.yml` runs `go test ... || true` for the unit packages, which hides failures and breaks the last criterion.
 
 **Acceptance criteria**
 - Given a pull request, when CI runs, then it builds the Rust core and Go CLI, runs `cargo fmt --check`, `cargo clippy`, `cargo test`, `gofmt`, `go vet`, Go unit tests and Go integration tests against PostgreSQL 16, and runs `cargo audit` and `govulncheck`.
@@ -451,6 +461,76 @@ State in `docs/en/SECURITY.md` what the vault and integrity modes protect agains
 **Acceptance criteria**
 - Given `docs/en/SECURITY.md`, when I read it, then it states the guarantees, the threat model and the exclusions.
 - Given the README and CLI help, when I compare them with it, then they make no stronger claim.
+
+### [E1-17] Table names: snake_case plural, identical in Rust and Go
+
+- type: bug
+- epic: E1
+- labels: type:bug, area:core, area:runtime, priority:P1
+- milestone: H0
+
+Rust (migrations) and Go (mutations, introspection) derive table names with different rules, so mutations can target a table that the migration did not create (for example `OrderItem`). Unify them: snake_case, irregular plurals from a shared dictionary, otherwise `+s` unless the name ends in `s`.
+
+**Dependencies:** ships with E1-18 as one release with a migration note, because existing databases keep their old table names.
+
+**Acceptance criteria**
+- Given any entity name, when the migration and the mutation layer derive its table name, then the results are equal (drift test over the dictionary).
+- Given an entity with an irregular plural (`Person`, `Category`), when the table is created, then its name is the correct plural.
+- Given an existing database created by an earlier version, when the release notes are read, then the rename and the way to keep old names are documented.
+
+### [E1-18] Types phase 1: `int` as 64-bit, `timestamp` as instant, `date` and `json`
+
+- type: story
+- epic: E1
+- labels: type:story, area:core, priority:P1
+- milestone: H0
+
+Today `int` maps to `INTEGER` (32-bit) and `timestamp` to `TIMESTAMP` without zone. Define semantic contracts: `int` is 64-bit (`BIGINT`), `timestamp` is an instant (`TIMESTAMPTZ`); add `date` and `json` (`JSONB`). `introspect` warns on unmapped types. No sizes, precision or `string(n)` in this phase.
+
+**Dependencies:** ADR "semantic DSL types" (E1-19). Related: E1-17.
+
+**Acceptance criteria**
+- Given each DSL type, when I read the backend mapping table, then every type has a documented contract and PostgreSQL mapping.
+- Given a schema using the new types, when I migrate and insert, then the values round-trip.
+- Given an existing database, when the release notes are read, then they explain that existing tables are not altered.
+- Given `introspect`, when a column has no equivalent type, then it is reported.
+
+### [E1-19] ADR: semantic, backend-neutral DSL types
+
+- type: task
+- epic: E1
+- labels: type:task, area:docs, priority:P1
+- milestone: H0
+
+Record that DSL types are semantic and the generator mapping is the backend seam ([ADR-0010](../adr/0010-backend-strategy-and-capability-declarations.md)). Include the type contracts, the per-backend mapping table and the defaults matrix (one default per type, no new function names).
+
+**Acceptance criteria**
+- Given the ADR, when I read it, then phase 1 and phase 2 of the types are separated and the defaults matrix is explicit.
+
+### [E1-20] Optional TLS settings in the connector
+
+- type: story
+- epic: E1
+- labels: type:story, area:runtime, priority:P1
+- milestone: H0
+
+`ConnectorConfig` has no TLS option, so connections depend on the connection string alone.
+
+**Acceptance criteria**
+- Given a configuration with TLS mode, when the connector starts, then the mode is applied and documented.
+- Given a connection string with credentials, when it fails, then the error does not expose them (see E2-09).
+
+### [E1-21] Mutation filter gaps: `in`, OR and `time.Time`
+
+- type: story
+- epic: E1
+- labels: type:story, area:runtime, priority:P2
+- milestone: H1b
+
+Mutation filters reject `in`, have no OR and do not accept `time.Time`. Decide whether they belong to the query and mutation builders or stay out of scope for the observation horizon.
+
+**Acceptance criteria**
+- Given the decision, when it is recorded, then each of the three has a status (supported, deferred or out of scope) in the docs.
 
 ---
 
