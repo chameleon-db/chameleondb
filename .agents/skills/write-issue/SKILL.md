@@ -5,7 +5,7 @@ description: Turn a need, bug or idea into a well-formed backlog issue with cont
 
 # write-issue
 
-Issues are authored in `docs/planning/backlog.md` (exported to GitHub by `scripts/planning/export_backlog.py`) or directly in GitHub using the templates.
+Issues are authored directly in GitHub using the templates in `.github/ISSUE_TEMPLATE`. `docs/planning/backlog.md` is an archived snapshot of the initial export (2026-11-07) and is not edited.
 
 ## Structure
 
@@ -15,17 +15,9 @@ Issues are authored in `docs/planning/backlog.md` (exported to GitHub by `script
 - **Acceptance criteria:** observable, testable statements, preferably Given / When / Then.
 - **Notes:** constraints, dependencies, risks.
 
-## Backlog entry format
+## Labels and milestones
 
-```
-## [E1-07] Title
-- type: story | task | bug | spike | epic
-- epic: E1
-- labels: area:core, priority:P1
-- milestone: H0
-
-Body in markdown.
-```
+Use `type:*`, `area:*` and `priority:P0|P1|P2`, an epic reference ("Part of #N") and a milestone (H0, H1a, H1b, H2, H3).
 
 ## Rules
 

@@ -1,10 +1,10 @@
 # ChameleonDB — Backlog
 
-**Status:** Candidate for initial GitHub export  
+**Status:** Exported to GitHub on 2026-11-07. Archived snapshot; do not edit.  
 **Version:** 0.2  
 **Date:** 2026-11-01
 
-This backlog is the starting point for the initial GitHub export. `scripts/planning/export_backlog.py` creates the issues in GitHub; after export, **GitHub is the source of truth** and this file is no longer edited for routine work. See [README](README.md) for the format and process.
+This file is the backlog that was exported to GitHub issues on 2026-11-07. From then on **GitHub issues and the project board are the source of truth**; this file is kept as a historical record of the initial scope and is no longer edited. The export script was a one-off tool and is not part of the repository. See [README](README.md) for how work is organised.
 
 Security findings are deliberately **not** listed here in detail; they are tracked in a private advisory.
 

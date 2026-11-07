@@ -18,7 +18,6 @@ examples/           sample schemas
 dist/               install and uninstall scripts
 docs/               documentation (English); ADRs in docs/adr
 .agents/skills/     task playbooks for coding agents
-scripts/planning/   backlog export tooling
 ```
 
 The Go code calls the Rust core through cgo. The Rust library must be built before the Go binary. How long this split stays is under review in [ADR-0011](docs/adr/0011-language-runtime-and-distribution.md).

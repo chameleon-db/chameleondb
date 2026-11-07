@@ -33,7 +33,7 @@ A roadmap view groups issues by milestone. Milestones are named after horizons:
 
 ## Labels
 
-`type:*` (epic, story, task, bug, feature, spike), `area:*` (core, runtime, vault, ci, docs), `priority:P0|P1|P2`, `needs-triage`, `good first issue`, `help wanted`. The full list with colours is in `scripts/planning/export_backlog.py`.
+`type:*` (epic, story, task, bug, feature, spike), `area:*` (core, runtime, vault, ci, docs), `priority:P0|P1|P2`, `needs-triage`, `good first issue`, `help wanted`. Use the existing labels; the GitHub label list has the descriptions.
 
 ## Definition of ready
 
@@ -45,27 +45,4 @@ Acceptance criteria are met; tests pass (including failure cases); docs are upda
 
 ## Initial backlog
 
-[`backlog.md`](backlog.md) holds the initial epics and issues in a simple format:
-
-```
-## [E1-07] Title
-- type: task            # epic | story | task | bug | spike
-- epic: E1              # omit for epics
-- labels: type:task, area:ci, priority:P1
-- milestone: H0         # H0 | H1a | H1b | H2 | H3
-
-Body in markdown (context, scope, acceptance criteria).
-```
-
-Export it once with the script. It is a dry run unless `--apply` is given:
-
-```bash
-python3 scripts/planning/export_backlog.py                      # parse, validate, print the plan
-gh auth login                                                   # once; add the 'project' scope for --project-*
-python3 scripts/planning/export_backlog.py --apply --repo chameleon-db/chameleondb
-# optionally add everything to a Project:
-python3 scripts/planning/export_backlog.py --apply --repo chameleon-db/chameleondb \
-    --project-owner chameleon-db --project-number 1
-```
-
-The script is idempotent: issues carry a hidden `backlog-id` marker and existing ones are skipped (use `--update` to overwrite them). Epics get a task list of their children. After the first export, **GitHub is the source of truth**; do not keep editing `backlog.md`.
+[`backlog.md`](backlog.md) is the initial set of epics and issues. It was exported to GitHub on 2026-11-07 with a one-off script that is not kept in the repository. **GitHub issues and the project board are the source of truth** from then on: file new work as issues (templates in `.github/ISSUE_TEMPLATE`) and do not edit `backlog.md`. Each exported issue carries a hidden `backlog-id` marker (for example `E1-07`) in its body, which links it back to the snapshot.
