@@ -172,6 +172,47 @@ mod tests {
     }
 
     #[test]
+    fn test_belongs_to_without_a_resolvable_key_is_rejected() {
+        let schema = build_schema(vec![
+            ("User", vec![("id", FieldType::UUID, true, false, None)], vec![]),
+            ("Post",
+                vec![("id", FieldType::UUID, true, false, None)],
+                vec![("author", RelationKind::BelongsTo, "User", None)]),
+        ]);
+
+        let result = type_check(&schema);
+        assert!(result.errors.iter().any(|e| matches!(e, TypeCheckError::InvalidBelongsTo { .. })), "{}", result.error_report());
+    }
+
+    #[test]
+    fn test_belongs_to_key_type_must_match_target_primary_key() {
+        let schema = build_schema(vec![
+            ("User", vec![("id", FieldType::UUID, true, false, None)], vec![]),
+            ("Post",
+                vec![("id", FieldType::UUID, true, false, None),
+                     ("author_id", FieldType::Int, false, false, None)],
+                vec![("author", RelationKind::BelongsTo, "User", None)]),
+        ]);
+
+        let result = type_check(&schema);
+        assert!(result.errors.iter().any(|e| matches!(e, TypeCheckError::InvalidBelongsTo { .. })), "{}", result.error_report());
+    }
+
+    #[test]
+    fn test_belongs_to_key_by_naming_convention_is_accepted() {
+        let schema = build_schema(vec![
+            ("User", vec![("id", FieldType::UUID, true, false, None)], vec![]),
+            ("Post",
+                vec![("id", FieldType::UUID, true, false, None),
+                     ("author_id", FieldType::UUID, false, false, None)],
+                vec![("author", RelationKind::BelongsTo, "User", None)]),
+        ]);
+
+        let result = type_check(&schema);
+        assert!(result.is_valid(), "{}", result.error_report());
+    }
+
+    #[test]
     fn test_valid_annotations() {
         let schema = build_schema(vec![
             ("Product",

@@ -116,6 +116,52 @@ impl Schema {
     pub fn get_entity_mut(&mut self, name: &str) -> Option<&mut Entity> {
         self.entities.iter_mut().find(|e| e.name == name)
     }
+
+    /// Column of `entity` that holds the key of a BelongsTo relation.
+    ///
+    /// The DSL has no `via` for BelongsTo, so the key is found, in order:
+    /// 1. an explicit `foreign_key` on the relation;
+    /// 2. the `via` of the has-many on the target that points back at `entity`
+    ///    (`User.posts: [Post] via author_id` gives `Post.author` the key `author_id`);
+    /// 3. a field named `<relation>_id` on `entity`.
+    ///
+    /// With several has-many relations pointing back, `<relation>_id` breaks the tie.
+    pub fn belongs_to_key(&self, entity: &Entity, relation: &Relation) -> Result<String, BelongsToKeyError> {
+        if let Some(fk) = &relation.foreign_key {
+            return Ok(fk.clone());
+        }
+
+        let conventional = format!("{}_id", relation.name);
+        let mut candidates: Vec<String> = self
+            .get_entity(&relation.target_entity)
+            .map(|target| {
+                target
+                    .relations
+                    .values()
+                    .filter(|r| r.kind == RelationKind::HasMany && r.target_entity == entity.name)
+                    .filter_map(|r| r.foreign_key.clone())
+                    .filter(|fk| entity.fields.contains_key(fk))
+                    .collect()
+            })
+            .unwrap_or_default();
+        candidates.sort();
+        candidates.dedup();
+
+        match candidates.len() {
+            1 => Ok(candidates.remove(0)),
+            0 if entity.fields.contains_key(&conventional) => Ok(conventional),
+            0 => Err(BelongsToKeyError::Missing),
+            _ if candidates.contains(&conventional) => Ok(conventional),
+            _ => Err(BelongsToKeyError::Ambiguous(candidates)),
+        }
+    }
+}
+
+/// Why the key of a BelongsTo relation could not be resolved.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BelongsToKeyError {
+    Missing,
+    Ambiguous(Vec<String>),
 }
 
 impl Entity {

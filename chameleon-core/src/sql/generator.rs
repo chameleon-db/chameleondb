@@ -1,4 +1,4 @@
-use crate::ast::{Entity, Schema};
+use crate::ast::{BelongsToKeyError, Entity, Relation, RelationKind, Schema};
 use crate::query::{
     Query, FilterExpr, FilterCondition, FilterValue,
     ComparisonOp, LogicalOp, SortDirection, OrderByClause, FieldPath,
@@ -313,16 +313,25 @@ fn build_joins(
         let target_table = table_for(&relation.target_entity)?;
         let source_table = table_for(&entity.name)?;
 
-        let fk = relation.foreign_key.as_ref()
-            .ok_or_else(|| SqlGenError::MissingForeignKey {
-                entity: entity.name.clone(),
-                relation: rel_name.clone(),
-            })?;
-
-        joins.push(format!(
-            "INNER JOIN {} ON {}.{} = {}.\"id\"",
-            target_table, target_table, quote(fk)?, source_table
-        ));
+        let join = if relation.kind == RelationKind::BelongsTo {
+            // The key lives on the source row: source.fk = target.id
+            let fk = belongs_to_key(schema, entity, relation)?;
+            format!(
+                "INNER JOIN {} ON {}.\"id\" = {}.{}",
+                target_table, target_table, source_table, quote(&fk)?
+            )
+        } else {
+            let fk = relation.foreign_key.as_ref()
+                .ok_or_else(|| SqlGenError::MissingForeignKey {
+                    entity: entity.name.clone(),
+                    relation: rel_name.clone(),
+                })?;
+            format!(
+                "INNER JOIN {} ON {}.{} = {}.\"id\"",
+                target_table, target_table, quote(fk)?, source_table
+            )
+        };
+        joins.push(join);
     }
 
     Ok(joins.join("\n"))
@@ -542,24 +551,36 @@ fn build_eager_query_for_path(
         let target_entity = require_entity(schema, &relation.target_entity)?;
         let target_table = table_for(&relation.target_entity)?;
 
-        let fk = relation.foreign_key.as_ref()
-            .ok_or_else(|| SqlGenError::MissingForeignKey {
-                entity: current_entity.to_string(),
-                relation: rel_name.clone(),
-            })?;
-
         // Build columns
         let columns = target_entity.fields.keys()
             .map(|name| quote(name))
             .collect::<Result<Vec<String>, SqlGenError>>()?;
 
         // Parent ids are bound as one array parameter
-        let sql = format!(
-            "SELECT {}\nFROM {}\nWHERE {} = ANY($1)",
-            columns.join(", "),
-            target_table,
-            quote(fk)?,
-        );
+        let sql = if relation.kind == RelationKind::BelongsTo {
+            // The key lives on the parent rows, which the executor does not
+            // expose, so select the targets through the parents' ids.
+            let fk = belongs_to_key(schema, entity, relation)?;
+            format!(
+                "SELECT {}\nFROM {}\nWHERE \"id\" IN (SELECT {} FROM {} WHERE \"id\" = ANY($1))",
+                columns.join(", "),
+                target_table,
+                quote(&fk)?,
+                table_for(current_entity)?,
+            )
+        } else {
+            let fk = relation.foreign_key.as_ref()
+                .ok_or_else(|| SqlGenError::MissingForeignKey {
+                    entity: current_entity.to_string(),
+                    relation: rel_name.clone(),
+                })?;
+            format!(
+                "SELECT {}\nFROM {}\nWHERE {} = ANY($1)",
+                columns.join(", "),
+                target_table,
+                quote(fk)?,
+            )
+        };
 
         queries.push((full_path.clone(), sql));
         params.push(vec![SqlParam::ParentIds]);
@@ -582,6 +603,21 @@ fn build_eager_query_for_path(
     Ok(())
 }
 
+/// Resolve the key column of a BelongsTo relation, as a generation error.
+fn belongs_to_key(schema: &Schema, entity: &Entity, relation: &Relation) -> Result<String, SqlGenError> {
+    schema.belongs_to_key(entity, relation).map_err(|e| match e {
+        BelongsToKeyError::Missing => SqlGenError::MissingForeignKey {
+            entity: entity.name.clone(),
+            relation: relation.name.clone(),
+        },
+        BelongsToKeyError::Ambiguous(candidates) => SqlGenError::AmbiguousForeignKey {
+            entity: entity.name.clone(),
+            relation: relation.name.clone(),
+            candidates,
+        },
+    })
+}
+
 /// Errors during SQL generation
 #[derive(Debug, Clone, PartialEq)]
 pub enum SqlGenError {
@@ -589,6 +625,7 @@ pub enum SqlGenError {
     UnknownRelation { entity: String, relation: String },
     UnknownField { entity: String, field: String },
     MissingForeignKey { entity: String, relation: String },
+    AmbiguousForeignKey { entity: String, relation: String, candidates: Vec<String> },
     InvalidIdentifier(String),
     InvalidPath(String),
     UnsupportedPath(String),
@@ -606,6 +643,9 @@ impl std::fmt::Display for SqlGenError {
                 write!(f, "Unknown field '{}' in entity '{}'", field, entity),
             SqlGenError::MissingForeignKey { entity, relation } =>
                 write!(f, "Missing foreign key for relation '{}' in '{}'", relation, entity),
+            SqlGenError::AmbiguousForeignKey { entity, relation, candidates } =>
+                write!(f, "Ambiguous foreign key for relation '{}' in '{}' ({}): name the field '{}_id'",
+                    relation, entity, candidates.join(", "), relation),
             SqlGenError::InvalidIdentifier(_) =>
                 write!(f, "Invalid identifier"),
             SqlGenError::InvalidPath(path) =>
