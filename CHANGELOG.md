@@ -8,6 +8,12 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 ## [Unreleased]
 
+### Fixed
+- `Include` on a belongs-to relation (`author: User`) failed with a missing-foreign-key error. It now loads the referenced rows, once each, and skips NULL keys. A filter through a belongs-to relation (`author.name`) now joins on the local key.
+
+### Changed
+- The key of a belongs-to relation is resolved from the `via` of the has-many on the other entity that points back, or from a field named `<relation>_id`. `chameleon validate` now reports a belongs-to relation whose key cannot be resolved (or is ambiguous, or has a type different from the target's `id`) instead of leaving the error to the first query.
+
 ## [v1.1.3] - 2026-11-08
 
 ### Fixed

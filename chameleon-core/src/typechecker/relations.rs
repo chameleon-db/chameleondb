@@ -1,4 +1,4 @@
-use crate::ast::{Schema, RelationKind};
+use crate::ast::{BelongsToKeyError, RelationKind, Schema};
 use super::errors::TypeCheckError;
 
 /// Validates all relations in the schema
@@ -60,6 +60,47 @@ pub fn check_relations(schema: &Schema) -> Vec<TypeCheckError> {
                             }
                         }
                     }
+                }
+            }
+
+            // 3b. BelongsTo: the key must resolve to a field of this entity whose
+            //     type matches the primary key of the target, which must be `id`
+            if relation.kind == RelationKind::BelongsTo {
+                let target_entity = schema.get_entity(&relation.target_entity).unwrap();
+                let mut invalid = |reason: String| {
+                    errors.push(TypeCheckError::InvalidBelongsTo {
+                        entity: entity.name.clone(),
+                        relation: relation.name.clone(),
+                        reason,
+                    });
+                };
+
+                match schema.belongs_to_key(entity, relation) {
+                    Err(BelongsToKeyError::Missing) => invalid(format!(
+                        "no foreign key found; add a has-many with 'via <field>' on '{}', or a field named '{}_id'",
+                        target_entity.name, relation.name
+                    )),
+                    Err(BelongsToKeyError::Ambiguous(candidates)) => invalid(format!(
+                        "foreign key is ambiguous ({}); name the field '{}_id'",
+                        candidates.join(", "), relation.name
+                    )),
+                    Ok(fk) => match (entity.fields.get(&fk), target_entity.fields.values().find(|f| f.primary_key)) {
+                        (None, _) => invalid(format!("'{}' has no field '{}'", entity.name, fk)),
+                        (Some(_), None) => {}
+                        (Some(fk_field), Some(pk)) => {
+                            if pk.name != "id" {
+                                invalid(format!(
+                                    "'{}' must have a primary key named 'id' (found '{}')",
+                                    target_entity.name, pk.name
+                                ));
+                            } else if fk_field.field_type != pk.field_type {
+                                invalid(format!(
+                                    "foreign key '{}' has type {:?}, but '{}.id' has type {:?}",
+                                    fk, fk_field.field_type, target_entity.name, pk.field_type
+                                ));
+                            }
+                        }
+                    },
                 }
             }
 

@@ -645,6 +645,179 @@ mod tests {
         assert_eq!(result.eager_params, vec![vec![SqlParam::ParentIds], vec![SqlParam::ParentIds]]);
     }
 
+    // ─── BELONGS-TO ───
+
+    const BLOG: &str = r#"
+        entity User {
+            id: uuid primary default uuid(),
+            name: string,
+            posts: [Post] via author_id,
+            comments: [Comment] via author_id,
+        }
+        entity Post {
+            id: uuid primary default uuid(),
+            title: string,
+            published: bool,
+            author_id: uuid,
+            author: User,
+            comments: [Comment] via post_id,
+        }
+        entity Comment {
+            id: uuid primary default uuid(),
+            body: string,
+            author_id: uuid,
+            post_id: uuid,
+            author: User,
+            post: Post,
+        }
+    "#;
+
+    fn blog_schema() -> Schema {
+        let schema = crate::parser::parse_schema(BLOG).unwrap();
+        let check = crate::typechecker::type_check(&schema);
+        assert!(check.is_valid(), "{}", check.error_report());
+        schema
+    }
+
+    #[test]
+    fn test_include_belongs_to() {
+        let schema = blog_schema();
+        let result = generate_sql(&Query::new("Post").include("author"), &schema).unwrap();
+
+        assert_eq!(result.eager_queries.len(), 1);
+        assert_eq!(result.eager_queries[0].0, "author");
+        let sql = &result.eager_queries[0].1;
+        assert!(sql.contains("FROM \"users\""), "{}", sql);
+        assert!(
+            sql.contains("WHERE \"id\" IN (SELECT \"author_id\" FROM \"posts\" WHERE \"id\" = ANY($1))"),
+            "{}", sql
+        );
+        assert_eq!(result.eager_params, vec![vec![SqlParam::ParentIds]]);
+    }
+
+    #[test]
+    fn test_include_belongs_to_nested_after_has_many() {
+        let schema = blog_schema();
+        let query = Query::new("User").include("posts").include("posts.author");
+        let result = generate_sql(&query, &schema).unwrap();
+
+        assert_eq!(result.eager_queries.len(), 2);
+        assert!(result.eager_queries[0].1.contains("WHERE \"author_id\" = ANY($1)"));
+        assert_eq!(result.eager_queries[1].0, "posts.author");
+        assert!(result.eager_queries[1].1.contains("FROM \"posts\" WHERE \"id\" = ANY($1)"));
+    }
+
+    #[test]
+    fn test_include_belongs_to_then_has_many() {
+        let schema = blog_schema();
+        let query = Query::new("Comment").include("post").include("post.comments");
+        let result = generate_sql(&query, &schema).unwrap();
+
+        assert_eq!(result.eager_queries.len(), 2);
+        assert!(result.eager_queries[0].1.contains("(SELECT \"post_id\" FROM \"comments\""));
+        assert!(result.eager_queries[1].1.contains("WHERE \"post_id\" = ANY($1)"));
+    }
+
+    #[test]
+    fn test_two_belongs_to_with_different_keys_resolve_separately() {
+        let schema = crate::parser::parse_schema(r#"
+            entity User {
+                id: uuid primary,
+                written: [Post] via author_id,
+                reviewed: [Post] via reviewer_id,
+            }
+            entity Post {
+                id: uuid primary,
+                author_id: uuid,
+                reviewer_id: uuid,
+                author: User,
+                reviewer: User,
+            }
+        "#).unwrap();
+
+        let author = generate_sql(&Query::new("Post").include("author"), &schema).unwrap();
+        let reviewer = generate_sql(&Query::new("Post").include("reviewer"), &schema).unwrap();
+        assert!(author.eager_queries[0].1.contains("SELECT \"author_id\""));
+        assert!(reviewer.eager_queries[0].1.contains("SELECT \"reviewer_id\""));
+    }
+
+    #[test]
+    fn test_belongs_to_key_from_naming_convention() {
+        // No has-many on the target points back: fall back to `<relation>_id`.
+        let schema = crate::parser::parse_schema(r#"
+            entity User { id: uuid primary, }
+            entity Post { id: uuid primary, author_id: uuid, author: User, }
+        "#).unwrap();
+
+        let result = generate_sql(&Query::new("Post").include("author"), &schema).unwrap();
+        assert!(result.eager_queries[0].1.contains("SELECT \"author_id\" FROM \"posts\""));
+    }
+
+    #[test]
+    fn test_belongs_to_without_any_key_is_an_error() {
+        let schema = crate::parser::parse_schema(r#"
+            entity User { id: uuid primary, }
+            entity Post { id: uuid primary, author: User, }
+        "#).unwrap();
+
+        let err = generate_sql(&Query::new("Post").include("author"), &schema).unwrap_err();
+        assert!(matches!(err, SqlGenError::MissingForeignKey { .. }), "{:?}", err);
+    }
+
+    #[test]
+    fn test_belongs_to_ambiguous_key_is_an_error() {
+        let schema = crate::parser::parse_schema(r#"
+            entity User {
+                id: uuid primary,
+                written: [Post] via author_id,
+                reviewed: [Post] via reviewer_id,
+            }
+            entity Post {
+                id: uuid primary,
+                author_id: uuid,
+                reviewer_id: uuid,
+                owner: User,
+            }
+        "#).unwrap();
+
+        let err = generate_sql(&Query::new("Post").include("owner"), &schema).unwrap_err();
+        assert!(matches!(err, SqlGenError::AmbiguousForeignKey { .. }), "{:?}", err);
+    }
+
+    #[test]
+    fn test_filter_through_belongs_to_joins_on_the_local_key() {
+        let schema = blog_schema();
+        let query = Query::new("Post").filter(FilterExpr::condition(
+            "author.name",
+            ComparisonOp::Eq,
+            FilterValue::String("ana".to_string()),
+        ));
+        let result = generate_sql(&query, &schema).unwrap();
+
+        assert!(result.main_query.contains("DISTINCT"), "{}", result.main_query);
+        assert!(
+            result.main_query.contains("INNER JOIN \"users\" ON \"users\".\"id\" = \"posts\".\"author_id\""),
+            "{}", result.main_query
+        );
+        assert!(result.main_query.contains("\"users\".\"name\" = $1"), "{}", result.main_query);
+    }
+
+    #[test]
+    fn test_filter_through_has_many_is_unchanged() {
+        let schema = blog_schema();
+        let query = Query::new("User").filter(FilterExpr::condition(
+            "posts.published",
+            ComparisonOp::Eq,
+            FilterValue::Bool(true),
+        ));
+        let result = generate_sql(&query, &schema).unwrap();
+
+        assert!(
+            result.main_query.contains("INNER JOIN \"posts\" ON \"posts\".\"author_id\" = \"users\".\"id\""),
+            "{}", result.main_query
+        );
+    }
+
     // ─── JSON CONTRACT ───
 
     #[test]

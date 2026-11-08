@@ -24,6 +24,13 @@ pub enum TypeCheckError {
         relation: String,
     },
 
+    #[error("BelongsTo relation '{relation}' in '{entity}': {reason}")]
+    InvalidBelongsTo {
+        entity: String,
+        relation: String,
+        reason: String,
+    },
+
     // Primary keys
     #[error("Entity '{entity}' has no primary key")]
     MissingPrimaryKey {
