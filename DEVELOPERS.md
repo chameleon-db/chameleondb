@@ -52,7 +52,7 @@ make build            # produces chameleon/bin/chameleon
 
 From `chameleon/`, run `make tag` to prepare a release. The helper reads the
 version from `chameleon-core/Cargo.toml`, proposes the next patch version,
-updates `Cargo.lock`, and checks that both release tags are available:
+validates the Rust manifest, and checks that both release tags are available:
 `vX.Y.Z` (used by CI) and `chameleon/vX.Y.Z` (used to identify the component).
 
 It can create the release commit and tags after confirmation. It asks separately

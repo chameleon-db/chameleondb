@@ -6,7 +6,6 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
 CORE_DIR="$REPO_ROOT/chameleon-core"
 CARGO_TOML="$CORE_DIR/Cargo.toml"
-CARGO_LOCK="$CORE_DIR/Cargo.lock"
 
 cd "$REPO_ROOT"
 
@@ -65,14 +64,12 @@ done
 
 backup_dir="$(mktemp -d)"
 cp "$CARGO_TOML" "$backup_dir/Cargo.toml"
-cp "$CARGO_LOCK" "$backup_dir/Cargo.lock"
 restore_on_failure=1
 cleanup() {
   status=$?
   if [[ "$status" -ne 0 && "$restore_on_failure" -eq 1 ]]; then
     cp "$backup_dir/Cargo.toml" "$CARGO_TOML"
-    cp "$backup_dir/Cargo.lock" "$CARGO_LOCK"
-    echo "Se restauraron Cargo.toml y Cargo.lock porque el release no se pudo preparar." >&2
+    echo "Se restauró Cargo.toml porque el release no se pudo preparar." >&2
   fi
   rm -rf "$backup_dir"
   exit "$status"
@@ -91,19 +88,19 @@ awk -v new_version="$requested_version" '
 ' "$CARGO_TOML" > "$backup_dir/Cargo.toml.new"
 mv "$backup_dir/Cargo.toml.new" "$CARGO_TOML"
 
-echo "Actualizando Cargo.lock..."
+echo "Validando el manifiesto de Cargo..."
 (cd "$CORE_DIR" && cargo check --quiet)
 
 echo
 echo "Cambio preparado:"
-git diff -- "$CARGO_TOML" "$CARGO_LOCK"
+git diff -- "$CARGO_TOML"
 echo
 
 read -r -p "¿Crear el commit y los dos tags ahora? [Y/n]: " create_release
 create_release="${create_release:-y}"
 
 if [[ "$create_release" =~ ^[Yy]$ ]]; then
-  git add "$CARGO_TOML" "$CARGO_LOCK"
+  git add "$CARGO_TOML"
   git commit -m "chore: release $release_tag" \
     -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
   restore_on_failure=0
@@ -126,7 +123,7 @@ else
   restore_on_failure=0
   echo
   echo "No se crearon commit ni tags. Para continuar:"
-  echo "  git add chameleon-core/Cargo.toml chameleon-core/Cargo.lock"
+  echo "  git add chameleon-core/Cargo.toml"
   echo "  git commit -m 'chore: release $release_tag'"
   echo "  git tag $release_tag"
   echo "  git tag $component_tag"
