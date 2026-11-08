@@ -1,4 +1,4 @@
-.PHONY: build test clean run-parse run-validate test-integration test-all docker-up docker-down wait-db build-rust
+.PHONY: build test clean run-parse run-validate test-integration test-all docker-up docker-down wait-db build-rust tag
 
 # Env variables for tests
 TEST_DB_HOST ?= localhost
@@ -12,6 +12,9 @@ export CHAMELEON_TEST_DB_PORT=$(TEST_DB_PORT)
 export CHAMELEON_TEST_DB_NAME=$(TEST_DB_NAME)
 export CHAMELEON_TEST_DB_USER=$(TEST_DB_USER)
 export CHAMELEON_TEST_DB_PASS=$(TEST_DB_PASS)
+
+tag:
+	../chameleon/scripts/tag-release.sh
 
 # Paths
 RUST_LIB_DIR := ../chameleon-core/target/release

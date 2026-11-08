@@ -48,6 +48,17 @@ cd ../chameleon
 make build            # produces chameleon/bin/chameleon
 ```
 
+## Release tags
+
+From `chameleon/`, run `make tag` to prepare a release. The helper reads the
+version from `chameleon-core/Cargo.toml`, proposes the next patch version,
+updates `Cargo.lock`, and checks that both release tags are available:
+`vX.Y.Z` (used by CI) and `chameleon/vX.Y.Z` (used to identify the component).
+
+It can create the release commit and tags after confirmation. It asks separately
+before pushing; if either action is declined, it prints the commands needed to
+finish the release manually. The working tree must be clean before starting.
+
 ## Test
 
 ```bash
