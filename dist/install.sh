@@ -65,6 +65,18 @@ case "$OS" in
         ;;
 esac
 
+# Prebuilt archives published with each release (see .github/workflows/release.yml)
+case "$OS/$ARCH" in
+    linux/amd64|linux/arm64) ASSET_NAME="chameleon-linux-$ARCH" ;;
+    darwin/arm64)            ASSET_NAME="chameleon-macos-arm64" ;;
+    darwin/amd64)
+        printf "${RED}✗${NC} No prebuilt binary for Intel Macs (darwin/amd64)\n"
+        printf "   Prebuilt macOS binaries are Apple Silicon only. Build from source:\n"
+        printf "   https://github.com/$REPO#install-linux-and-macos\n"
+        exit 1
+        ;;
+esac
+
 # === HEADER ===
 printf "\n"
 printf "${BLUE}╔════════════════════════════════════════╗${NC}\n"
@@ -114,20 +126,51 @@ if command -v chameleon >/dev/null 2>&1; then
 fi
 
 # === DOWNLOAD ===
-URL="https://github.com/$REPO/releases/latest/download/chameleon-$OS-$ARCH.tar.gz"
+# CHAMELEON_RELEASE_URL overrides the download base (mirrors, local testing).
+BASE_URL="${CHAMELEON_RELEASE_URL:-https://github.com/$REPO/releases/latest/download}"
+URL="$BASE_URL/$ASSET_NAME.tar.gz"
 printf "\n${BLUE}ℹ${NC} Downloading ChameleonDB...\n"
 printf "   From: $URL\n"
 
 TMP_DIR="$(mktemp -d)"
-trap "rm -rf $TMP_DIR" EXIT
+trap 'rm -rf "$TMP_DIR"' EXIT
 
 if ! curl -fsSL "$URL" -o "$TMP_DIR/chameleon.tar.gz"; then
     printf "${RED}✗${NC} Download failed\n"
+    printf "   No archive named $ASSET_NAME.tar.gz was found for this release.\n"
     printf "   Check: https://github.com/$REPO/releases\n"
     exit 1
 fi
 
 printf "${GREEN}✓${NC} Downloaded successfully\n"
+
+# === VERIFY CHECKSUM ===
+# Releases publish <asset>.sha256 next to each archive. A mismatch aborts the
+# install. If the checksum file or a hashing tool is missing, we say so instead
+# of silently skipping.
+if command -v sha256sum >/dev/null 2>&1; then
+    HASH_CMD="sha256sum"
+elif command -v shasum >/dev/null 2>&1; then
+    HASH_CMD="shasum -a 256"
+else
+    HASH_CMD=""
+fi
+
+if [ -z "$HASH_CMD" ]; then
+    printf "${YELLOW}⚠${NC} No sha256sum/shasum found; checksum not verified\n"
+elif curl -fsSL "$BASE_URL/$ASSET_NAME.sha256" -o "$TMP_DIR/expected.sha256" 2>/dev/null; then
+    EXPECTED="$(awk '{print tolower($1); exit}' "$TMP_DIR/expected.sha256")"
+    ACTUAL="$($HASH_CMD "$TMP_DIR/chameleon.tar.gz" | awk '{print tolower($1)}')"
+    if [ -z "$EXPECTED" ] || [ "$EXPECTED" != "$ACTUAL" ]; then
+        printf "${RED}✗${NC} Checksum mismatch; aborting\n"
+        printf "   expected: $EXPECTED\n"
+        printf "   actual:   $ACTUAL\n"
+        exit 1
+    fi
+    printf "${GREEN}✓${NC} Checksum verified (sha256)\n"
+else
+    printf "${YELLOW}⚠${NC} No checksum published for this release; archive not verified\n"
+fi
 
 # === EXTRACT ===
 printf "${BLUE}ℹ${NC} Extracting files...\n"

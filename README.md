@@ -60,7 +60,7 @@ That direction is a plan, not a description of the current code. Read the [produ
 curl -sSL https://chameleondb.dev/install | sh
 ```
 
-The install script does not yet verify checksums; if that matters to you, build from source.
+Prebuilt binaries: Linux (amd64, arm64) and macOS on Apple Silicon (arm64). Intel Macs have no prebuilt binary; build from source. The install script verifies the SHA-256 checksum published with each release and aborts on a mismatch.
 
 Build from source:
 

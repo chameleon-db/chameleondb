@@ -16,8 +16,18 @@ env:
 jobs:
   # ============ LINUX ============
   build-linux:
-    name: Build Linux
-    runs-on: ubuntu-latest
+    name: Build Linux (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ubuntu-22.04 keeps the glibc requirement low enough for
+          # Ubuntu 22.04+, Debian 12+ and Fedora.
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,14 +79,14 @@ jobs:
             echo "Cflags: -I/usr/local/include"
           } > dist/chameleon.pc
           cd dist
-          tar -czf chameleon-linux-amd64.tar.gz chameleon libchameleon.so* chameleon.h chameleon.pc
-          sha256sum chameleon-linux-amd64.tar.gz > chameleon-linux-amd64.sha256
+          tar -czf chameleon-linux-${{ matrix.arch }}.tar.gz chameleon libchameleon.so* chameleon.h chameleon.pc
+          sha256sum chameleon-linux-${{ matrix.arch }}.tar.gz > chameleon-linux-${{ matrix.arch }}.sha256
 
       - name: Validate package contents
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ABI="${{ env.LIB_ABI_VERSION }}"
-          ARCHIVE="dist/chameleon-linux-amd64.tar.gz"
+          ARCHIVE="dist/chameleon-linux-${{ matrix.arch }}.tar.gz"
           CONTENTS="$(tar -tzf "$ARCHIVE")"
           echo "$CONTENTS"
 
@@ -90,17 +100,20 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: chameleon-linux-amd64
-          path: dist/chameleon-linux-amd64.tar.gz
+          name: chameleon-linux-${{ matrix.arch }}
+          path: dist/chameleon-linux-${{ matrix.arch }}.tar.gz
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/chameleon-linux-amd64.tar.gz
+          files: |
+            dist/chameleon-linux-${{ matrix.arch }}.tar.gz
+            dist/chameleon-linux-${{ matrix.arch }}.sha256
 
   # ============ macOS ============
+  # macos-latest runners are Apple Silicon, so this archive is arm64 only.
   build-macos:
-    name: Build macOS
+    name: Build macOS (arm64)
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -125,7 +138,7 @@ jobs:
         working-directory: chameleon
         env:
           CGO_ENABLED: "1"
-          CGO_LDFLAGS: "-L${{ github.workspace }}/chameleon/lib -lchameleon"
+          CGO_LDFLAGS: "-L${{ github.workspace }}/chameleon/lib -lchameleon -Wl,-rpath,/usr/local/lib"
           CGO_CFLAGS: "-I${{ github.workspace }}/chameleon-core/include"
           LD_LIBRARY_PATH: "${{ github.workspace }}/chameleon/lib"
         run: |
@@ -153,14 +166,14 @@ jobs:
             echo "Cflags: -I/usr/local/include"
           } > dist/chameleon.pc
           cd dist
-          tar -czf chameleon-macos-universal.tar.gz chameleon libchameleon*.dylib chameleon.h chameleon.pc
-          shasum -a 256 chameleon-macos-universal.tar.gz > chameleon-macos-universal.sha256
+          tar -czf chameleon-macos-arm64.tar.gz chameleon libchameleon*.dylib chameleon.h chameleon.pc
+          shasum -a 256 chameleon-macos-arm64.tar.gz > chameleon-macos-arm64.sha256
 
       - name: Validate package contents
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ABI="${{ env.LIB_ABI_VERSION }}"
-          ARCHIVE="dist/chameleon-macos-universal.tar.gz"
+          ARCHIVE="dist/chameleon-macos-arm64.tar.gz"
           CONTENTS="$(tar -tzf "$ARCHIVE")"
           echo "$CONTENTS"
 
@@ -174,13 +187,15 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: chameleon-macos-universal
-          path: dist/chameleon-macos-universal.tar.gz
+          name: chameleon-macos-arm64
+          path: dist/chameleon-macos-arm64.tar.gz
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/chameleon-macos-universal.tar.gz
+          files: |
+            dist/chameleon-macos-arm64.tar.gz
+            dist/chameleon-macos-arm64.sha256
 
   # ============ WINDOWS ============
   build-windows:
@@ -235,7 +250,8 @@ jobs:
           "@ | Set-Content -Path dist\chameleon.pc -NoNewline
           cd dist
           tar -czf chameleon-windows-amd64.tar.gz chameleon.exe chameleon.dll chameleon.h chameleon.pc
-          certutil -hashfile chameleon-windows-amd64.tar.gz SHA256 > chameleon-windows-amd64.sha256
+          $hash = (Get-FileHash chameleon-windows-amd64.tar.gz -Algorithm SHA256).Hash.ToLower()
+          "$hash  chameleon-windows-amd64.tar.gz" | Set-Content -Path chameleon-windows-amd64.sha256 -NoNewline
 
       - name: Validate package contents
         shell: pwsh
@@ -258,4 +274,6 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/chameleon-windows-amd64.tar.gz
+          files: |
+            dist/chameleon-windows-amd64.tar.gz
+            dist/chameleon-windows-amd64.sha256
