@@ -1,6 +1,6 @@
 # ChameleonDB releases
 
-**Current release: [v1.1.2-alpha](https://github.com/chameleon-db/chameleondb/releases/tag/v1.1.2-alpha)** (2026-11-06)
+**Current release: [v1.1.3-alpha](https://github.com/chameleon-db/chameleondb/releases/tag/v1.1.3-alpha)** (2026-11-08)
 
 This page is the overview of the current release: what it contains, what works, what does not, how to install it and what we are working on. The complete, version-by-version list of changes is the [CHANGELOG](CHANGELOG.md).
 
@@ -10,13 +10,21 @@ This page is the overview of the current release: what it contains, what works, 
 |---|---|
 | **Stage** | Alpha. Syntax, APIs and behavior can still change. Do not use it with untrusted input or production data yet. |
 | **Database** | PostgreSQL only (integration tests run on 16; `default uuid()` needs 13 or newer, or `pgcrypto`) |
-| **Platforms** | Linux x86-64, macOS (universal), Windows x86-64 |
+| **Platforms** | Linux x86-64 and arm64, macOS Apple Silicon (arm64), Windows x86-64. No prebuilt binary for Intel Macs. |
 | **Components** | Rust core (parser, type checker, SQL and migration generation), Go runtime and CLI |
 | **License** | Apache 2.0 |
 | **Security** | Report vulnerabilities privately, see [SECURITY.md](SECURITY.md) |
 | **Documentation** | [docs.chameleondb.dev](https://docs.chameleondb.dev) |
 
-## In this release: v1.1.2-alpha
+## In this release: v1.1.3-alpha
+
+v1.1.3-alpha changes the install path only; the core and the runtime are the same as in v1.1.2-alpha.
+
+- The install script works on macOS (Apple Silicon) and on Linux arm64. Before, it failed with a 404 on macOS because the archive name did not match.
+- Every archive has its SHA-256 file attached to the release, and the install script verifies it.
+- The macOS archive is now `chameleon-macos-arm64` (it was called `universal` but contained arm64 only).
+
+## Previous release: v1.1.2-alpha
 
 A maintenance release with fixes to mutations, debugging and the CLI. It does not change the schema language or the migrations.
 
@@ -83,8 +91,8 @@ No migration is needed. Existing tables are never altered by ChameleonDB.
 - **Types:** `int` maps to a 32-bit `INTEGER` and `timestamp` to `TIMESTAMP` without time zone. Both are planned to change; see the plan below.
 - **Table names** are derived differently by the migration generator and the mutation layer for some multi-word or irregular names. A fix that makes them identical is planned and will come with migration notes.
 - **Filters:** the `in` operator, `OR` and `time.Time` values are not supported. Pass dates as strings.
-- **Install script:** it does not verify checksums, and it requests `chameleon-darwin-<arch>.tar.gz`, while releases publish `chameleon-macos-universal.tar.gz` and only a Linux x86-64 archive. On macOS or on Linux ARM, download the archive by hand or build from source.
-- **Checksums** are generated during the release but not yet attached to it.
+- **Intel Macs and Windows on ARM** have no prebuilt binary. Build from source.
+- **Install script:** it does not install on Windows (download the archive by hand). It verifies the SHA-256 checksum of the archive, but the checksum comes from the same release page as the archive, so it detects corrupted downloads, not a compromised release. Release signing is not available yet.
 - **Developer servers** (`playground`, `dashboard`) are for local use only. Do not expose them to a network.
 
 ## What we are working on
@@ -93,7 +101,6 @@ Work is organised by horizon, not by date. The board and the issues are the sour
 
 | Horizon | Goal | Examples |
 |---|---|---|
-| **H0, trustworthy base** | The existing code is predictable and its claims match reality | CI on every pull request (build, lint, tests, `cargo audit`, `govulncheck`), FFI hardening, release checksums, consistent table names, types phase 1 (`int` as 64-bit, `timestamp` as an instant, `date`, `json`), loopback-only developer servers |
 | **H1a, observe and drift** | Point the tool at a PostgreSQL database with read-only access and see how it differs from a reference | Canonical schema digest, faithful introspection of a supported subset, baseline snapshots, `drift` command with text and JSON reports |
 | **H1b, controlled change** | Review each change with its risk before it is applied | Risk-classified change plans, gates for destructive changes, verification of the control level |
 | **Later** | Beyond PostgreSQL and a single team | Additional backends, offline-first compatibility between schema revisions |
@@ -102,17 +109,15 @@ See the [product definition](docs/product-definition.md) for scope and the [arch
 
 ## Install
 
-### Linux
+### Linux and macOS
 
 ```bash
 curl -sSL https://chameleondb.dev/install | sh
 ```
 
-The script installs `chameleon`, `libchameleon.so`, the C header and a `pkg-config` file. It asks before reinstalling. Set `CHAMELEON_INSTALL_DIR`, `CHAMELEON_LIB_DIR`, `CHAMELEON_INCLUDE_DIR` or `CHAMELEON_PKGCONFIG_DIR` to change the destinations.
+Supported: Linux x86-64 and arm64, macOS on Apple Silicon. The script installs `chameleon`, the shared library, the C header and a `pkg-config` file, and verifies the SHA-256 checksum of the archive. It asks before reinstalling. Set `CHAMELEON_INSTALL_DIR`, `CHAMELEON_LIB_DIR`, `CHAMELEON_INCLUDE_DIR` or `CHAMELEON_PKGCONFIG_DIR` to change the destinations.
 
-### macOS
-
-Download `chameleon-macos-universal.tar.gz` from the [release page](https://github.com/chameleon-db/chameleondb/releases/latest), extract it, and copy the binary and the library into your `PATH` and library path. The install script does not support this archive name yet (see the limitations).
+On Intel Macs, build from source (below).
 
 ### Windows
 
@@ -137,7 +142,7 @@ You need Go 1.25.6 or newer, a stable Rust toolchain, a C compiler and `make`.
 
 ```bash
 chameleon version
-# ChameleonDB v1.1.2-alpha
+# ChameleonDB v1.1.3-alpha
 ```
 
 ## Try it

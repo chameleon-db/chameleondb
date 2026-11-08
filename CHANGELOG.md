@@ -8,6 +8,23 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 ## [Unreleased]
 
+## [v1.1.3] - 2026-11-08
+
+### Fixed
+- The install script requested `chameleon-darwin-<arch>.tar.gz`, but releases published `chameleon-macos-universal.tar.gz`, so the install failed with a 404 on macOS. It now requests the archive that the release actually publishes.
+- On an unsupported platform or a missing archive, the script says which archive it looked for.
+
+### Changed
+- **Release assets:** the macOS archive is now `chameleon-macos-arm64.tar.gz`. It was named `universal`, but it was built on an Apple Silicon runner and contains arm64 binaries only. Intel Macs have no prebuilt binary; the install script says so and points to the build from source.
+- Linux archives are built on Ubuntu 22.04 to lower the glibc version they require.
+- The macOS binary is linked with an rpath to `/usr/local/lib`, where the install script puts `libchameleon.dylib`.
+- The Windows checksum file uses the same format as the others (`<hash>  <file>`).
+
+### Added
+- Linux arm64 archive (`chameleon-linux-arm64.tar.gz`).
+- The `.sha256` file of each archive is now attached to the release. The install script verifies it and aborts on a mismatch; if the release has no checksum, or no `sha256sum`/`shasum` is available, it warns and continues.
+- `CHAMELEON_RELEASE_URL` overrides the download location of the install script (mirrors, testing a release before announcing it).
+
 ## [v1.1.2] - 2026-11-06
 
 ### Fixed
