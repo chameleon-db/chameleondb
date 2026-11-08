@@ -114,10 +114,26 @@ if [[ "$create_release" =~ ^[Yy]$ ]]; then
   echo
   read -r -p "¿Hacer push de la rama y los tags? [y/N]: " push_release
   if [[ "$push_release" =~ ^[Yy]$ ]]; then
-    git push origin HEAD "$release_tag" "$component_tag"
+    branch="$(git symbolic-ref --quiet --short HEAD)" || {
+      echo "No se puede hacer push automático desde un HEAD separado." >&2
+      exit 1
+    }
+    git push origin "HEAD:$branch"
+    git push origin "$release_tag" "$component_tag"
+    remote_commit="$(git ls-remote origin "refs/heads/$branch" | awk '{print $1}')"
+    remote_release_tag="$(git ls-remote origin "refs/tags/$release_tag" | awk '{print $1}')"
+    remote_component_tag="$(git ls-remote origin "refs/tags/$component_tag" | awk '{print $1}')"
+    if [[ "$remote_commit" != "$(git rev-parse HEAD)" ||
+      "$remote_release_tag" != "$(git rev-parse "$release_tag")" ||
+      "$remote_component_tag" != "$(git rev-parse "$component_tag")" ]]; then
+      echo "El push terminó, pero no se pudieron verificar todas las referencias remotas." >&2
+      exit 1
+    fi
+    echo "Rama y tags verificados en origin."
   else
     echo "Para publicar el release:"
-    echo "  git push origin HEAD $release_tag $component_tag"
+    echo "  git push origin HEAD:$(git branch --show-current)"
+    echo "  git push origin $release_tag $component_tag"
   fi
 else
   restore_on_failure=0
@@ -127,5 +143,6 @@ else
   echo "  git commit -m 'chore: release $release_tag'"
   echo "  git tag $release_tag"
   echo "  git tag $component_tag"
-  echo "  git push origin HEAD $release_tag $component_tag"
+  echo "  git push origin HEAD:$(git branch --show-current)"
+  echo "  git push origin $release_tag $component_tag"
 fi

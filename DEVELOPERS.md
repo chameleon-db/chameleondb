@@ -56,8 +56,11 @@ validates the Rust manifest, and checks that both release tags are available:
 `vX.Y.Z` (used by CI) and `chameleon/vX.Y.Z` (used to identify the component).
 
 It can create the release commit and tags after confirmation. It asks separately
-before pushing; if either action is declined, it prints the commands needed to
-finish the release manually. The working tree must be clean before starting.
+before pushing; it pushes the branch first, then both tags, and verifies all
+three remote references. If pushing is declined, it prints the commands needed
+to finish the release manually. The working tree must be clean before starting.
+The release workflow also refuses to build when the tag and Cargo manifest
+versions differ.
 
 ## Test
 

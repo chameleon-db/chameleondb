@@ -14,9 +14,30 @@ env:
   LIB_ABI_VERSION: "1"
 
 jobs:
+  validate-version:
+    name: Validate release version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check tag matches Cargo manifest
+        shell: bash
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          actual="$(cargo metadata --manifest-path chameleon-core/Cargo.toml --no-deps --format-version 1 | python3 -c 'import json, sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Release tag v$expected does not match Cargo.toml version $actual." >&2
+            exit 1
+          fi
+
   # ============ LINUX ============
   build-linux:
     name: Build Linux (${{ matrix.arch }})
+    needs: validate-version
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -114,6 +135,7 @@ jobs:
   # macos-latest runners are Apple Silicon, so this archive is arm64 only.
   build-macos:
     name: Build macOS (arm64)
+    needs: validate-version (arm64)
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -200,6 +222,7 @@ jobs:
   # ============ WINDOWS ============
   build-windows:
     name: Build Windows
+    needs: validate-version
     runs-on: windows-latest
     steps:
       - name: Checkout
