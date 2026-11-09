@@ -23,6 +23,8 @@ import (
 var (
 	dryRun         bool
 	applyMigration bool
+	migrateNoInput bool
+	migrateSetMode string
 	checkOnly      bool
 )
 
@@ -80,12 +82,14 @@ Examples:
 		v := vault.NewVault(workDir)
 
 		// Auto-initialize vault if doesn't exist
+		createdVault := false
 		if !v.Exists() {
 			printInfo("Initializing Schema Vault...")
 			if err := v.Initialize(); err != nil {
 				journalLogger.LogError("migrate", err, map[string]interface{}{"action": "vault_init"})
 				return fmt.Errorf("failed to initialize vault: %w", err)
 			}
+			createdVault = true
 			printSuccess("Created .chameleon/vault/")
 		}
 
@@ -482,6 +486,12 @@ Examples:
 		fmt.Printf("  Status:   applied\n")
 		fmt.Println()
 
+		if createdVault {
+			if err := afterFirstApply(v, journalLogger, migrateNoInput, migrateSetMode); err != nil {
+				return err
+			}
+		}
+
 		if mode, modeErr := v.GetParanoidMode(); modeErr == nil {
 			if notice := readonlyNotice(mode); notice != "" {
 				fmt.Print(notice)
@@ -497,6 +507,8 @@ func init() {
 	migrateCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show migration SQL without applying")
 	migrateCmd.Flags().BoolVar(&applyMigration, "apply", false, "apply migration to database")
 	migrateCmd.Flags().BoolVar(&checkOnly, "check", false, "only check for pending migrations (default)")
+	migrateCmd.Flags().BoolVar(&migrateNoInput, "no-input", false, "never ask questions (also the case without a terminal or with CI set)")
+	migrateCmd.Flags().StringVar(&migrateSetMode, "set-mode", "", "after the first apply, switch to this mode (only \"standard\"); reads the password from CHAMELEON_MODE_PASSWORD")
 
 	rootCmd.AddCommand(migrateCmd)
 }

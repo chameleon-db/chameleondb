@@ -10,6 +10,15 @@ import (
 
 	"github.com/chameleon-db/chameleondb/chameleon/internal/admin"
 	"github.com/chameleon-db/chameleondb/chameleon/internal/config"
+	"github.com/chameleon-db/chameleondb/chameleon/internal/initwizard"
+)
+
+var (
+	initDBURL     string
+	initCompose   bool
+	initDetectDB  bool
+	initNoExample bool
+	initNoInput   bool
 )
 
 var initCmd = &cobra.Command{
@@ -60,6 +69,15 @@ If no name is provided, initializes in current directory.`,
 			printInfo("Initializing ChameleonDB in current directory: %s", workDir)
 		}
 
+		choices, err := initwizard.Resolve(
+			initwizard.NewPrompter(os.Stdin, os.Stdout),
+			initwizard.Flags{DBURL: initDBURL, Compose: initCompose, DetectDB: initDetectDB, NoExample: initNoExample},
+			initwizard.Env{Dir: workDir, Getenv: os.Getenv, Interactive: interactiveTerminal(initNoInput), Ping: pingPostgres},
+		)
+		if err != nil {
+			return err
+		}
+
 		// Initialize admin structure (.chameleon/)
 		printInfo("Creating .chameleon/ structure...")
 		factory := admin.NewManagerFactory(workDir)
@@ -93,12 +111,44 @@ If no name is provided, initializes in current directory.`,
 		}
 
 		// Create example schema
-		schemaPath := filepath.Join(schemasDir, "example.cham")
-		schemaContent := exampleSchema()
-		if err := os.WriteFile(schemaPath, []byte(schemaContent), 0644); err != nil {
-			return fmt.Errorf("failed to create example schema: %w", err)
+		if choices.CreateExample {
+			schemaPath := filepath.Join(schemasDir, "example.cham")
+			schemaContent := exampleSchema()
+			if err := os.WriteFile(schemaPath, []byte(schemaContent), 0644); err != nil {
+				return fmt.Errorf("failed to create example schema: %w", err)
+			}
+			printSuccess("Created schemas/example.cham")
 		}
-		printSuccess("Created schemas/example.cham")
+
+		if choices.WriteCompose {
+			created, err := initwizard.WriteComposeFile(workDir)
+			if err != nil {
+				return err
+			}
+			if created {
+				printSuccess("Created %s (PostgreSQL 16)", initwizard.ComposeFileName)
+			} else {
+				printWarning("A compose file already exists; it was not changed")
+			}
+
+			if choices.RunCompose {
+				printInfo("Starting PostgreSQL (docker compose up -d)...")
+				if err := runDockerComposeUp(workDir); err != nil {
+					printWarning("docker compose failed: %v", err)
+				} else if err := waitForPostgres(choices.URL, 20); err != nil {
+					printWarning("%v", err)
+				} else {
+					printSuccess("PostgreSQL is accepting connections")
+				}
+			}
+		}
+		if choices.URL != "" {
+			if created, err := initwizard.WriteEnvExample(workDir, choices.URL); err != nil {
+				return err
+			} else if created {
+				printSuccess("Created .env.example (placeholder password)")
+			}
+		}
 
 		// Create README
 		printInfo("Creating README.md...")
@@ -122,7 +172,9 @@ If no name is provided, initializes in current directory.`,
 		fmt.Println("    ├── journal/        Audit logs (not versioned)")
 		fmt.Println("    └── backups/        Backup files (not versioned)")
 		fmt.Println("  schemas/              Schema files")
-		fmt.Println("    └── example.cham    Example schema")
+		if choices.CreateExample {
+			fmt.Println("    └── example.cham    Example schema")
+		}
 		fmt.Println("  README.md             Getting started guide")
 		fmt.Println()
 
@@ -130,13 +182,24 @@ If no name is provided, initializes in current directory.`,
 		if len(args) > 0 {
 			fmt.Printf("  cd %s\n", projectName)
 		}
-		fmt.Println("  export DATABASE_URL=\"postgresql://user:password@localhost/dbname\"")
+		if choices.URL != "" {
+			fmt.Printf("  export DATABASE_URL=\"%s\"\n", choices.URL)
+		} else {
+			fmt.Println("  export DATABASE_URL=\"postgresql://user:password@localhost/dbname\"")
+		}
 		fmt.Println("  chameleon migrate --dry-run")
 		fmt.Println("  chameleon migrate --apply")
 		fmt.Println()
-		fmt.Println("Security tip:")
-		fmt.Println("  Set an admin password to protect privileged/emergency mode changes.")
-		fmt.Println("  Run: chameleon config auth set-password")
+		for _, note := range choices.Notes {
+			printWarning("%s", note)
+		}
+		if len(choices.Notes) > 0 {
+			fmt.Println()
+		}
+		fmt.Println("About the mode:")
+		fmt.Println("  The first 'chameleon migrate --apply' leaves the project in readonly mode,")
+		fmt.Println("  which guards against accidental schema changes. You will be asked there")
+		fmt.Println("  whether to set a password and switch to standard mode.")
 		fmt.Println()
 		fmt.Println("Edit schemas/*.cham to define your database schema.")
 		fmt.Println("Configuration: .chameleon.yml (version controlled)")
@@ -148,6 +211,11 @@ If no name is provided, initializes in current directory.`,
 }
 
 func init() {
+	initCmd.Flags().StringVar(&initDBURL, "db-url", "", "PostgreSQL connection string to use (printed as an export line; the config keeps ${DATABASE_URL})")
+	initCmd.Flags().BoolVar(&initCompose, "compose", false, "write a docker-compose.yml with PostgreSQL 16")
+	initCmd.Flags().BoolVar(&initDetectDB, "detect-db", false, "use the first PostgreSQL connection found in the environment, .env files or compose files")
+	initCmd.Flags().BoolVar(&initNoExample, "no-example", false, "do not create schemas/example.cham")
+	initCmd.Flags().BoolVar(&initNoInput, "no-input", false, "never ask questions (also the case without a terminal or with CI set)")
 	rootCmd.AddCommand(initCmd)
 }
 
@@ -156,14 +224,14 @@ func exampleSchema() string {
 // This is a simple blog schema to get you started
 
 entity User {
-    id: uuid primary,
+    id: uuid primary default uuid(),
     email: string unique,
     name: string,
     created_at: timestamp default now(),
 }
 
 entity Post {
-    id: uuid primary,
+    id: uuid primary default uuid(),
     title: string,
     content: string,
     published: bool,
@@ -172,7 +240,7 @@ entity Post {
 }
 
 entity Comment {
-    id: uuid primary,
+    id: uuid primary default uuid(),
     content: string,
     post_id: uuid,
     user_id: uuid,
@@ -230,7 +298,7 @@ chameleon migrate --apply
 ## Configuration
 
 Edit ` + "`.chameleon.yml`" + ` to:
-- Change database driver (postgresql, mysql, sqlite)
+- Review the database connection (PostgreSQL)
 - Set connection string or use ` + "`${DATABASE_URL}`" + ` env var
 - Configure features (auto_migration, dry_run_default)
 - Set safety options (validation, confirmation)
@@ -241,14 +309,14 @@ Define your database schema in ` + "`schemas/*.cham`" + `:
 
 ` + "```" + `
 entity User {
-    id: uuid primary,
+    id: uuid primary default uuid(),
     email: string unique,
     name: string,
     created_at: timestamp default now(),
 }
 
 entity Post {
-    id: uuid primary,
+    id: uuid primary default uuid(),
     title: string,
     author_id: uuid,
     created_at: timestamp default now(),

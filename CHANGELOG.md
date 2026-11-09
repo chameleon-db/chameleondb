@@ -10,6 +10,8 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 ### Added
 - At the end of a successful `migrate --apply`, when the project is in `readonly` mode, the output says so, says that another apply will be refused, and lists the two commands that unlock it (`chameleon config auth set-password`, `chameleon config set mode=standard`). Before, the user found out on the next apply.
+- `chameleon init` can interactively select or detect a PostgreSQL connection, create a local PostgreSQL 16 compose file, and optionally create the example schema. Equivalent flags are available for non-interactive use.
+- After the first `migrate --apply`, an interactive session can configure the mode password and switch to standard mode; scripts can use `--set-mode standard` with `CHAMELEON_MODE_PASSWORD`.
 - A `Makefile` at the repository root that delegates to `chameleon/Makefile` and `cargo` (`make help` lists the targets).
 
 ### Changed
@@ -17,6 +19,7 @@ and this project adheres to Semantic Versioning (pre-1.0).
 - `chameleon init` no longer writes `features.rollback_enabled`, `features.audit_logging`, `features.backup_on_migrate` or `safety.backup_before_apply`. None of them had any behavior behind it. Files that still set one of them to `true` keep loading, and every command prints one warning per key saying it is not implemented and has no effect.
 - `migrate --apply` always prints that ChameleonDB creates no backup (before, it printed it only when `backup_on_migrate` was set).
 ### Fixed
+- The generated example schema gives UUID primary keys a default value, and generated README text now documents PostgreSQL as the supported database.
 - `Include` on a belongs-to relation (`author: User`) failed with a missing-foreign-key error. It now loads the referenced rows, once each, and skips NULL keys. A filter through a belongs-to relation (`author.name`) now joins on the local key.
 
 ### Changed
