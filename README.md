@@ -9,6 +9,7 @@
 [![Go Version](https://img.shields.io/badge/go-1.25%2B-00ADD8.svg)](https://golang.org)
 [![Status](https://img.shields.io/badge/status-alpha-orange)](https://github.com/chameleon-db/chameleondb)
 [![codecov](https://codecov.io/github/chameleon-db/chameleondb/branch/main/graph/badge.svg)](https://codecov.io/github/chameleon-db/chameleondb)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16484/badge)](https://www.bestpractices.dev/projects/16484)
 
 
 [ 🇺🇸 Documentation](docs/en/README.md) • [🇪🇸 Spanish documentation](docs/sp/README.md) • [Examples](https://github.com/chameleon-db/chameleon-examples) • [Discord](https://chameleondb.dev/discord)
