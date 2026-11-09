@@ -476,6 +476,13 @@ Examples:
 		fmt.Printf("  Status:   applied\n")
 		fmt.Println()
 
+		if mode, modeErr := v.GetParanoidMode(); modeErr == nil {
+			if notice := readonlyNotice(mode); notice != "" {
+				fmt.Print(notice)
+				fmt.Println()
+			}
+		}
+
 		return nil
 	},
 }
