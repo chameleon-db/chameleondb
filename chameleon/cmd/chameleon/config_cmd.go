@@ -13,6 +13,10 @@ import (
 
 const modePasswordEnvVar = "CHAMELEON_MODE_PASSWORD"
 
+// modePasswordNewEnvVar carries the new password when an existing one is
+// rotated non-interactively (modePasswordEnvVar then holds the current one).
+const modePasswordNewEnvVar = "CHAMELEON_MODE_PASSWORD_NEW"
+
 var paranoidModeRank = map[string]int{
 	"readonly":   0,
 	"standard":   1,
@@ -332,7 +336,15 @@ var configAuthSetPasswordCmd = &cobra.Command{
 	Long: `Set or rotate the local admin password required for paranoid mode upgrades
 (for example: readonly -> standard, standard -> privileged, privileged -> emergency).
 
-Tip: for non-interactive usage, set CHAMELEON_MODE_PASSWORD.`,
+The first password only needs to be chosen. Once one exists, changing it
+requires the current password.
+
+Non-interactive usage:
+  first password   CHAMELEON_MODE_PASSWORD=<new>
+  rotation         CHAMELEON_MODE_PASSWORD=<current> CHAMELEON_MODE_PASSWORD_NEW=<new>
+
+Environment variables are visible to other processes of the same user; prefer
+the interactive prompt on shared machines.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		workDir, err := os.Getwd()
@@ -345,13 +357,44 @@ Tip: for non-interactive usage, set CHAMELEON_MODE_PASSWORD.`,
 			return fmt.Errorf("vault not initialized. Run 'chameleon migrate' first")
 		}
 
-		password, err := readModePasswordForSetup()
-		if err != nil {
-			return err
+		factory := admin.NewManagerFactory(workDir)
+		journalLogger, _ := factory.CreateJournalLogger()
+
+		rotating := v.HasModePassword()
+		action := "password_configured"
+		if rotating {
+			action = "password_rotated"
 		}
 
-		if err := v.SetModePassword(password); err != nil {
-			return err
+		var setErr error
+		if rotating {
+			current, err := readModePassword()
+			if err != nil {
+				return err
+			}
+
+			next, err := readNewModePassword()
+			if err != nil {
+				return err
+			}
+
+			setErr = v.RotateModePassword(current, next)
+		} else {
+			password, err := readModePasswordForSetup()
+			if err != nil {
+				return err
+			}
+
+			setErr = v.SetModePassword(password)
+		}
+
+		if setErr != nil {
+			if journalLogger != nil {
+				_ = journalLogger.Log("config_mode_auth", "denied", map[string]interface{}{
+					"action": action,
+				}, nil)
+			}
+			return setErr
 		}
 
 		// Keep the verifier out of version control, also in projects
@@ -360,15 +403,17 @@ Tip: for non-interactive usage, set CHAMELEON_MODE_PASSWORD.`,
 			printWarning("Could not update .chameleon/.gitignore: %v", err)
 		}
 
-		factory := admin.NewManagerFactory(workDir)
-		journalLogger, _ := factory.CreateJournalLogger()
 		if journalLogger != nil {
 			_ = journalLogger.Log("config_mode_auth", "success", map[string]interface{}{
-				"action": "password_configured",
+				"action": action,
 			}, nil)
 		}
 
-		printSuccess("Mode password configured")
+		if rotating {
+			printSuccess("Mode password changed")
+		} else {
+			printSuccess("Mode password configured")
+		}
 		return nil
 	},
 }
@@ -470,7 +515,36 @@ func readModePasswordForSetup() (string, error) {
 		return value, nil
 	}
 
-	return readHiddenPassword(fmt.Sprintf("Choose mode password (min %d chars): ", vault.MinModePasswordLength))
+	return promptNewModePassword()
+}
+
+// readNewModePassword reads the replacement password when rotating.
+func readNewModePassword() (string, error) {
+	if value := strings.TrimSpace(os.Getenv(modePasswordNewEnvVar)); value != "" {
+		return value, nil
+	}
+
+	return promptNewModePassword()
+}
+
+// promptNewModePassword asks for a new password twice, so that a typo does not
+// lock the user out of mode changes.
+func promptNewModePassword() (string, error) {
+	first, err := readHiddenPassword(fmt.Sprintf("Choose mode password (min %d chars): ", vault.MinModePasswordLength))
+	if err != nil {
+		return "", err
+	}
+
+	second, err := readHiddenPassword("Repeat mode password: ")
+	if err != nil {
+		return "", err
+	}
+
+	if first != second {
+		return "", fmt.Errorf("passwords do not match")
+	}
+
+	return first, nil
 }
 
 func readHiddenPassword(prompt string) (string, error) {

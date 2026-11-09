@@ -23,8 +23,12 @@ type ModeConfig struct {
 }
 
 // ModeAuthConfig stores password verifier for privileged mode changes.
+//
+// Hash is an Argon2id verifier in PHC format. Files written before the change
+// hold a hex SHA-256 in Hash and its salt in Salt; they are upgraded the first
+// time the password is verified.
 type ModeAuthConfig struct {
-	Salt string `json:"salt"`
+	Salt string `json:"salt,omitempty"`
 	Hash string `json:"hash"`
 }
 
