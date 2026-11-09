@@ -34,15 +34,6 @@ features:
   # Auto-apply pending migrations
   auto_migration: true
   
-  # Allow rollbacks
-  rollback_enabled: true
-  
-  # Enable audit logging (journal)
-  audit_logging: true
-  
-  # Create backup before each migration
-  backup_on_migrate: true
-  
   # Default to --dry-run mode
   dry_run_default: false
 
@@ -50,9 +41,6 @@ features:
 safety:
   # Require confirmation before applying migrations
   require_confirmation: false
-  
-  # Always create backup before applying
-  backup_before_apply: true
   
   # Validate schema before applying
   validate_schema: true

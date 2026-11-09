@@ -4,10 +4,8 @@ use std::ptr;
 // Import desde el crate
 use chameleon::{
     chameleon_parse_schema,
-    chameleon_validate_schema,
     chameleon_free_string,
     chameleon_version,
-    ChameleonResult,
 };
 
 #[test]

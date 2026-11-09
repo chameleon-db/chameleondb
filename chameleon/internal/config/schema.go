@@ -30,19 +30,25 @@ type SchemaConfig struct {
 	ValidationStrict bool     `yaml:"validation_strict,omitempty"` // Fail on warnings
 }
 
-// FeaturesConfig holds feature flags
+// FeaturesConfig holds feature flags.
+//
+// RollbackEnabled, AuditLogging and BackupOnMigrate are accepted so that
+// existing files still load, but nothing reads them: see Unimplemented.
 type FeaturesConfig struct {
 	AutoMigration   bool `yaml:"auto_migration,omitempty"`    // Auto-apply migrations
-	RollbackEnabled bool `yaml:"rollback_enabled,omitempty"`  // Allow rollbacks
-	AuditLogging    bool `yaml:"audit_logging,omitempty"`     // Enable journal
-	BackupOnMigrate bool `yaml:"backup_on_migrate,omitempty"` // Backup before applying
+	RollbackEnabled bool `yaml:"rollback_enabled,omitempty"`  // Not implemented
+	AuditLogging    bool `yaml:"audit_logging,omitempty"`     // Not implemented
+	BackupOnMigrate bool `yaml:"backup_on_migrate,omitempty"` // Not implemented
 	DryRunDefault   bool `yaml:"dry_run_default,omitempty"`   // Default to --dry-run
 }
 
-// SafetyConfig holds safety settings
+// SafetyConfig holds safety settings.
+//
+// BackupBeforeApply is accepted so that existing files still load, but
+// nothing reads it: see Unimplemented.
 type SafetyConfig struct {
 	RequireConfirmation bool `yaml:"require_confirmation,omitempty"` // Ask before apply
-	BackupBeforeApply   bool `yaml:"backup_before_apply,omitempty"`  // Always backup
+	BackupBeforeApply   bool `yaml:"backup_before_apply,omitempty"`  // Not implemented
 	ValidateSchema      bool `yaml:"validate_schema,omitempty"`      // Validate before apply
 }
 
@@ -64,18 +70,34 @@ func Defaults() *Config {
 			ValidationStrict: false,
 		},
 		Features: FeaturesConfig{
-			AutoMigration:   true,
-			RollbackEnabled: true,
-			AuditLogging:    true,
-			BackupOnMigrate: true,
-			DryRunDefault:   false,
+			AutoMigration: true,
+			DryRunDefault: false,
 		},
 		Safety: SafetyConfig{
 			RequireConfirmation: false,
-			BackupBeforeApply:   true,
 			ValidateSchema:      true,
 		},
 	}
+}
+
+// Unimplemented returns the keys that are set to true in the loaded file but
+// have no behavior behind them, in a stable order. Each one gets a warning when
+// the file is loaded.
+func (c *Config) Unimplemented() []string {
+	var keys []string
+	if c.Features.RollbackEnabled {
+		keys = append(keys, "features.rollback_enabled")
+	}
+	if c.Features.AuditLogging {
+		keys = append(keys, "features.audit_logging")
+	}
+	if c.Features.BackupOnMigrate {
+		keys = append(keys, "features.backup_on_migrate")
+	}
+	if c.Safety.BackupBeforeApply {
+		keys = append(keys, "safety.backup_before_apply")
+	}
+	return keys
 }
 
 // Validate checks if config is valid

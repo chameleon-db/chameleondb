@@ -101,7 +101,6 @@ pub fn type_check(schema: &Schema) -> TypeCheckResult {
 mod tests {
     use super::*;
     use crate::ast::*;
-    use std::collections::HashMap;
 
     // Helper para construir schemas en tests
     fn build_schema(entities: Vec<(&str, Vec<(&str, FieldType, bool, bool, Option<BackendAnnotation>)>, Vec<(&str, RelationKind, &str, Option<&str>)>)>) -> Schema {

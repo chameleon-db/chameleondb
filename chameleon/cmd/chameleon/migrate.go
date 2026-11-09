@@ -375,11 +375,9 @@ Examples:
 
 		printSuccess("Connected to database")
 
-		// NOTE: backup_on_migrate is not implemented. The migration is
-		// create-only, but take your own backup before applying.
-		if cfg.Features.BackupOnMigrate {
-			printWarning("backup_on_migrate is not implemented yet: no backup was created")
-		}
+		// ChameleonDB does not create backups. The migration is create-only,
+		// but take your own backup before applying.
+		printInfo("No backup is created by ChameleonDB; use pg_dump if you need one")
 
 		// Apply migration
 		printInfo("Applying migration...")

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -335,5 +336,119 @@ func TestTemplate(t *testing.T) {
 
 	if !strings.Contains(template, "safety:") {
 		t.Error("Template should contain safety section")
+	}
+}
+
+var unimplementedKeys = []string{
+	"features.rollback_enabled",
+	"features.audit_logging",
+	"features.backup_on_migrate",
+	"safety.backup_before_apply",
+}
+
+func TestDefaults_OmitUnimplementedKeys(t *testing.T) {
+	cfg := Defaults()
+	if got := cfg.Unimplemented(); len(got) != 0 {
+		t.Fatalf("Defaults must not enable keys without behavior, got %v", got)
+	}
+
+	tmpDir := t.TempDir()
+	loader := NewLoader(tmpDir)
+	if err := loader.Save(cfg); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(tmpDir, ".chameleon.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"rollback_enabled", "audit_logging", "backup_on_migrate", "backup_before_apply"} {
+		if strings.Contains(string(data), name) {
+			t.Errorf("generated config must not contain %s:\n%s", name, data)
+		}
+	}
+}
+
+func TestTemplate_OmitsUnimplementedKeys(t *testing.T) {
+	for _, name := range []string{"rollback_enabled", "audit_logging", "backup_on_migrate", "backup_before_apply"} {
+		if strings.Contains(Template(), name) {
+			t.Errorf("Template must not contain %s", name)
+		}
+	}
+}
+
+func TestUnimplemented_ReportsOnlyKeysSetToTrue(t *testing.T) {
+	var cfg Config
+	if got := cfg.Unimplemented(); len(got) != 0 {
+		t.Fatalf("expected none, got %v", got)
+	}
+
+	cfg.Features.RollbackEnabled = true
+	cfg.Features.AuditLogging = true
+	cfg.Features.BackupOnMigrate = true
+	cfg.Safety.BackupBeforeApply = true
+
+	got := cfg.Unimplemented()
+	if strings.Join(got, ",") != strings.Join(unimplementedKeys, ",") {
+		t.Errorf("expected %v in this order, got %v", unimplementedKeys, got)
+	}
+}
+
+func captureWarnings(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := WarnWriter
+	WarnWriter = &buf
+	t.Cleanup(func() { WarnWriter = prev })
+	return &buf
+}
+
+func writeConfig(t *testing.T, dir, features string) {
+	t.Helper()
+	content := "version: \"0.1.4\"\ndatabase:\n  driver: postgresql\n  connection_string: postgresql://localhost/x\nschema:\n  paths:\n    - ./schemas\n" + features
+	if err := os.WriteFile(filepath.Join(dir, ".chameleon.yml"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoad_WarnsOncePerUnimplementedKey(t *testing.T) {
+	buf := captureWarnings(t)
+	dir := t.TempDir()
+	writeConfig(t, dir, "features:\n  rollback_enabled: true\n  audit_logging: true\nsafety:\n  backup_before_apply: true\n")
+
+	for i := 0; i < 2; i++ {
+		if _, err := NewLoader(dir).Load(); err != nil {
+			t.Fatalf("Load failed: %v", err)
+		}
+	}
+
+	out := buf.String()
+	for _, key := range []string{"features.rollback_enabled", "features.audit_logging", "safety.backup_before_apply"} {
+		if n := strings.Count(out, key+" is not implemented and has no effect"); n != 1 {
+			t.Errorf("expected exactly one warning for %s, got %d:\n%s", key, n, out)
+		}
+	}
+	if strings.Contains(out, "backup_on_migrate") {
+		t.Errorf("no warning expected for a key that is not set:\n%s", out)
+	}
+	if !strings.Contains(out, filepath.Join(dir, ".chameleon.yml")) {
+		t.Errorf("warning should name the file:\n%s", out)
+	}
+}
+
+func TestLoad_NoWarningWhenKeysAbsentOrFalse(t *testing.T) {
+	buf := captureWarnings(t)
+
+	absent := t.TempDir()
+	writeConfig(t, absent, "")
+	explicitFalse := t.TempDir()
+	writeConfig(t, explicitFalse, "features:\n  rollback_enabled: false\n  backup_on_migrate: false\nsafety:\n  backup_before_apply: false\n")
+
+	for _, dir := range []string{absent, explicitFalse} {
+		if _, err := NewLoader(dir).Load(); err != nil {
+			t.Fatalf("Load failed: %v", err)
+		}
+	}
+	if buf.Len() != 0 {
+		t.Errorf("expected no warnings, got:\n%s", buf.String())
 	}
 }
