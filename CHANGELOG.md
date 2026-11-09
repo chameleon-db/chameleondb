@@ -9,6 +9,7 @@ and this project adheres to Semantic Versioning (pre-1.0).
 ## [Unreleased]
 
 ### Added
+- At the end of a successful `migrate --apply`, when the project is in `readonly` mode, the output says so, says that another apply will be refused, and lists the two commands that unlock it (`chameleon config auth set-password`, `chameleon config set mode=standard`). Before, the user found out on the next apply.
 - A `Makefile` at the repository root that delegates to `chameleon/Makefile` and `cargo` (`make help` lists the targets).
 
 ### Changed
