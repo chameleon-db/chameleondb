@@ -38,46 +38,44 @@ Podman: the Makefile calls `docker compose`. Running the integration tests under
 
 ## Build
 
-```bash
-# Rust core
-cd chameleon-core
-cargo build --release
+All common tasks run from the repository root. `make help` lists them.
 
-# Go CLI (builds the Rust library first)
-cd ../chameleon
-make build            # produces chameleon/bin/chameleon
+```bash
+make build            # builds the Rust core, then chameleon/bin/chameleon
 ```
 
-## Release tags
+The root `Makefile` only delegates: the Go recipes are in `chameleon/Makefile` and the Rust ones are plain `cargo` commands in `chameleon-core`. You can still run those directly.
 
-From `chameleon/`, run `make tag` to prepare a release. The helper reads the
-version from `chameleon-core/Cargo.toml`, proposes the next patch version,
-validates the Rust manifest, and checks that both release tags are available:
-`vX.Y.Z` (used by CI) and `chameleon/vX.Y.Z` (used to identify the component).
+## Releases
 
-It can create the release commit and tags after confirmation. It asks separately
-before pushing; it pushes the branch first, then both tags, and verifies all
-three remote references. If pushing is declined, it prints the commands needed
-to finish the release manually. The working tree must be clean before starting.
-The release workflow also refuses to build when the tag and Cargo manifest
-versions differ.
+Release notes first, tag last. A release is made from `main`, in this order:
+
+1. In a pull request, add the `## [vX.Y.Z]` section to `CHANGELOG.md` and update `RELEASE.md` (current release, platforms, limits). Merge it.
+2. From an up-to-date `main`, run:
+
+   ```bash
+   make tag                  # proposes the next patch version; press Enter to accept it
+   make tag VERSION=1.2.0    # or choose the version
+   ```
+
+The script (`scripts/tag-release.sh`) refuses to continue when:
+
+- the working tree has uncommitted changes, the current branch is not `main`, or `main` is not the same commit as `origin/main`;
+- the version is invalid, equal to the current one, or one of its tags already exists;
+- `CHANGELOG.md` has no `## [vX.Y.Z]` section (`vX.Y.Z-alpha` is also accepted) or `RELEASE.md` does not mention `[vX.Y.Z-alpha]`.
+
+Otherwise it updates the version in `chameleon-core/Cargo.toml`, runs `cargo check`, and shows the diff. After confirmation it creates the commit `chore: release vX.Y.Z` and two tags: `vX.Y.Z` (used by CI) and `chameleon/vX.Y.Z` (identifies the component). It asks separately before pushing; it pushes the branch first, then both tags, and verifies the three remote references. If you decline the push, it prints the commands to finish by hand. If preparing the release fails, `Cargo.toml` is restored.
+
+The release workflow runs only when a `vX.Y.Z` tag is pushed; commits and pull requests do not start it. It refuses to build when the tag and the Cargo manifest version differ.
 
 ## Test
 
 ```bash
-# Rust: unit tests and FFI tests
-cd chameleon-core
-cargo test
-
-# Go: unit tests (builds the Rust library first)
-cd ../chameleon
-make test
-
-# Go: integration tests against PostgreSQL 16 (starts and stops a container on port 5433)
-make test-integration
-
-# Everything
-make test-all
+make test               # Rust unit and FFI tests, then Go unit tests
+make test-core          # Rust only
+make test-go            # Go unit tests (builds the Rust library first)
+make test-integration   # Go integration tests against PostgreSQL 16 (starts and stops a container on port 5433)
+make test-all           # Rust tests plus every Go test
 ```
 
 Integration tests read their connection settings from environment variables, with these defaults:
@@ -97,8 +95,9 @@ To run one Go test: `cd chameleon && CGO_LDFLAGS="-L$PWD/../chameleon-core/targe
 Before opening a pull request:
 
 ```bash
-cd chameleon-core && cargo fmt --check && cargo clippy --all-targets && cargo test
-cd ../chameleon && gofmt -l . && go vet ./... && make test
+cd chameleon-core && cargo fmt --check && cargo clippy --all-targets
+cd ../chameleon && gofmt -l . && go vet ./...
+cd .. && make test
 ```
 
 Known state at the last review: clippy reports warnings and a few default-deny errors that are tracked as issues; new code must not add more. `cargo audit` and `govulncheck` are expected to be clean once the dependency-update issue is closed.

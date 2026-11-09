@@ -66,8 +66,8 @@ Build from source:
 
 ```bash
 git clone https://github.com/chameleon-db/chameleondb.git
-cd chameleondb/chameleon
-make build            # builds the Rust core first, then bin/chameleon
+cd chameleondb
+make build            # builds the Rust core first, then chameleon/bin/chameleon
 ```
 
 ### Install (Windows)

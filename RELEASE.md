@@ -132,8 +132,8 @@ Put them in a folder (for example `c:\chameleon\`), add that folder to `Path` (S
 
 ```bash
 git clone https://github.com/chameleon-db/chameleondb.git
-cd chameleondb/chameleon
-make build            # builds the Rust core first, then bin/chameleon
+cd chameleondb
+make build            # builds the Rust core first, then chameleon/bin/chameleon
 ```
 
 You need Go 1.25.6 or newer, a stable Rust toolchain, a C compiler and `make`.

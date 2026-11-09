@@ -14,16 +14,18 @@ Use before every pull request and after any change to Rust, Go or SQL generation
    cd chameleon-core
    cargo fmt --check
    cargo clippy --all-targets
-   cargo test
    ```
 2. Go runtime (builds the Rust library first):
    ```bash
    cd chameleon
    gofmt -l .
    go vet ./...
+   ```
+3. Tests, from the repository root:
+   ```bash
    make test
    ```
-3. If the change touches database behaviour, vault, migrations or introspection, also run `make test-integration` (needs Docker with Compose; PostgreSQL 16 on port 5433).
+   If the change touches database behaviour, vault, migrations or introspection, also run `make test-integration` (needs Docker with Compose; PostgreSQL 16 on port 5433).
 4. If dependencies changed, run `cargo audit` and `govulncheck ./...` when installed.
 
 ## Reporting

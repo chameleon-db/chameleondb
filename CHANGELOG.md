@@ -8,6 +8,11 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 ## [Unreleased]
 
+### Added
+- A `Makefile` at the repository root that delegates to `chameleon/Makefile` and `cargo` (`make help` lists the targets).
+
+### Changed
+- `make tag` moved to the root (`scripts/tag-release.sh`). It now refuses to tag unless the branch is `main` and equal to `origin/main`, and the CHANGELOG and RELEASE.md already describe the version; the version can be passed as `make tag VERSION=X.Y.Z`; output messages are in English; the release commit no longer carries a `Co-authored-by` trailer.
 ### Fixed
 - `Include` on a belongs-to relation (`author: User`) failed with a missing-foreign-key error. It now loads the referenced rows, once each, and skips NULL keys. A filter through a belongs-to relation (`author.name`) now joins on the local key.
 
