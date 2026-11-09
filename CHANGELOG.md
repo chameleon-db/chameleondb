@@ -18,6 +18,8 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 ### Changed
 - The key of a belongs-to relation is resolved from the `via` of the has-many on the other entity that points back, or from a field named `<relation>_id`. `chameleon validate` now reports a belongs-to relation whose key cannot be resolved (or is ambiguous, or has a type different from the target's `id`) instead of leaving the error to the first query.
+- **Go runtime:** `engine.NewEngineAt(projectDir)` opens the project in a given directory, so a program no longer has to run from the project root. `engine.NewEngine()` does the same through `CHAMELEON_PROJECT_DIR` and keeps using the working directory when the variable is not set.
+- The errors of `NewEngine`/`NewEngineAt` name the directory that was searched. A missing vault says to run `chameleon migrate --apply` or to point to the project, and a failed integrity check says which check failed (it said only "integrity check failed").
 
 ## [v1.1.3] - 2026-11-08
 
