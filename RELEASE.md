@@ -86,7 +86,7 @@ No migration is needed. Existing tables are never altered by ChameleonDB.
 ## Known limitations
 
 - **No schema diff.** `migrate` creates missing tables only. Changes to existing tables (new columns, type changes) must be applied by hand.
-- **No rollback and no backups.** `backup_on_migrate` exists as a setting but is not implemented, and `migrate` says so.
+- **No rollback and no backups.** The old `rollback_enabled`, `audit_logging`, `backup_on_migrate` and `backup_before_apply` settings are not implemented: `init` no longer writes them and a file that sets them gets a warning. `migrate --apply` says that no backup is created.
 - **No transactions** in the data-access layer; each mutation is its own statement.
 - **Types:** `int` maps to a 32-bit `INTEGER` and `timestamp` to `TIMESTAMP` without time zone. Both are planned to change; see the plan below.
 - **Table names** are derived differently by the migration generator and the mutation layer for some multi-word or irregular names. A fix that makes them identical is planned and will come with migration notes.

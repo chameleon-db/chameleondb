@@ -232,7 +232,7 @@ chameleon migrate --apply
 Edit ` + "`.chameleon.yml`" + ` to:
 - Change database driver (postgresql, mysql, sqlite)
 - Set connection string or use ` + "`${DATABASE_URL}`" + ` env var
-- Configure features (auto_migration, rollback, backup, audit_logging)
+- Configure features (auto_migration, dry_run_default)
 - Set safety options (validation, confirmation)
 
 ## Schema

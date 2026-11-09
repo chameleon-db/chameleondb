@@ -13,6 +13,8 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 ### Changed
 - `make tag` moved to the root (`scripts/tag-release.sh`). It now refuses to tag unless the branch is `main` and equal to `origin/main`, and the CHANGELOG and RELEASE.md already describe the version; the version can be passed as `make tag VERSION=X.Y.Z`; output messages are in English; the release commit no longer carries a `Co-authored-by` trailer.
+- `chameleon init` no longer writes `features.rollback_enabled`, `features.audit_logging`, `features.backup_on_migrate` or `safety.backup_before_apply`. None of them had any behavior behind it. Files that still set one of them to `true` keep loading, and every command prints one warning per key saying it is not implemented and has no effect.
+- `migrate --apply` always prints that ChameleonDB creates no backup (before, it printed it only when `backup_on_migrate` was set).
 ### Fixed
 - `Include` on a belongs-to relation (`author: User`) failed with a missing-foreign-key error. It now loads the referenced rows, once each, and skips NULL keys. A filter through a belongs-to relation (`author.name`) now joins on the local key.
 

@@ -2,12 +2,29 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
+
+// WarnWriter receives the warnings about config keys that have no effect.
+// Tests replace it.
+var WarnWriter io.Writer = os.Stderr
+
+var warned sync.Map // "<file>|<key>" -> struct{}: one warning per key per process
+
+func warnUnimplemented(path string, cfg *Config) {
+	for _, key := range cfg.Unimplemented() {
+		if _, seen := warned.LoadOrStore(path+"|"+key, struct{}{}); seen {
+			continue
+		}
+		fmt.Fprintf(WarnWriter, "warning: %s: %s is not implemented and has no effect\n", path, key)
+	}
+}
 
 // Loader handles loading and parsing .chameleon.yml
 type Loader struct {
@@ -54,6 +71,8 @@ func (l *Loader) Load() (*Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+
+	warnUnimplemented(l.filePath, &cfg)
 
 	return &cfg, nil
 }
@@ -165,15 +184,6 @@ features:
   # Auto-apply pending migrations
   auto_migration: true
   
-  # Allow rollbacks
-  rollback_enabled: true
-  
-  # Enable audit logging
-  audit_logging: true
-  
-  # Create backup before each migration
-  backup_on_migrate: true
-  
   # Default to --dry-run mode
   dry_run_default: false
 
@@ -181,9 +191,6 @@ features:
 safety:
   # Require confirmation before applying migrations
   require_confirmation: false
-  
-  # Always create backup before applying
-  backup_before_apply: true
   
   # Validate schema before applying
   validate_schema: true
