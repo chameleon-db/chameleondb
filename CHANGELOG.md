@@ -24,6 +24,12 @@ and this project adheres to Semantic Versioning (pre-1.0).
 - **Go runtime:** `engine.NewEngineAt(projectDir)` opens the project in a given directory, so a program no longer has to run from the project root. `engine.NewEngine()` does the same through `CHAMELEON_PROJECT_DIR` and keeps using the working directory when the variable is not set.
 - The errors of `NewEngine`/`NewEngineAt` name the directory that was searched. A missing vault says to run `chameleon migrate --apply` or to point to the project, and a failed integrity check says which check failed (it said only "integrity check failed").
 
+### Security
+- The mode password is stored with Argon2id (OWASP minimum parameters, PHC format) instead of one round of salted SHA-256. Existing passwords keep working and are upgraded the first time they are verified.
+- `chameleon config auth set-password` no longer replaces an existing password: changing it requires the current one (`CHAMELEON_MODE_PASSWORD` for the current, `CHAMELEON_MODE_PASSWORD_NEW` for the new one when not interactive), and the interactive prompt asks twice.
+- `verify`, `migrate` and the engine start-up now fail when `mode.json` disagrees with the last mode change recorded in the integrity log, which detects an edit made outside the CLI. This is detection, not prevention: see ADR-0013 for what modes and the password do and do not protect.
+- New dependency: `golang.org/x/crypto` (Argon2). Run `go mod tidy` to refresh `go.sum`.
+
 ## [v1.1.3] - 2026-11-08
 
 ### Fixed

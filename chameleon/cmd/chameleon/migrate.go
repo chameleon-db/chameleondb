@@ -98,6 +98,12 @@ Examples:
 		}
 
 		if !vaultResult.Valid {
+			for _, issue := range vaultResult.Issues {
+				if strings.HasPrefix(issue, "mode.json ") {
+					return fmt.Errorf("failed to read paranoid mode: %s", issue)
+				}
+			}
+
 			fmt.Println()
 			printError("INTEGRITY VIOLATION DETECTED")
 			fmt.Println()

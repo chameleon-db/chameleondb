@@ -71,6 +71,7 @@ func (v *Vault) Initialize() error {
 	// Log initialization
 	if err := v.AppendLog("INIT", "", map[string]string{
 		"action": "vault_created",
+		"mode":   DefaultParanoidMode,
 	}); err != nil {
 		return fmt.Errorf("failed to log initialization: %w", err)
 	}

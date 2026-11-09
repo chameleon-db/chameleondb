@@ -62,6 +62,11 @@ func (v *Vault) VerifyIntegrity() (*VerificationResult, error) {
 		}
 	}
 
+	if issue := v.checkModeConsistency(); issue != "" {
+		result.Valid = false
+		result.Issues = append(result.Issues, issue)
+	}
+
 	return result, nil
 }
 

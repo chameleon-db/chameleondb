@@ -26,6 +26,7 @@ Short documents that capture one significant decision each: the context, the opt
 | [0009](0009-offline-first-and-distributed-data.md) | Offline-first and distributed data in production — scope and stance | Proposed |
 | [0010](0010-backend-strategy-and-capability-declarations.md) | Backend strategy — capability declarations and a first engine pair | Proposed |
 | [0011](0011-language-runtime-and-distribution.md) | Implementation languages, runtime boundary and distribution | Proposed |
+| [0013](0013-mode-and-password-threat-model.md) | Mode and password: what they protect and what they do not | Proposed |
 
 ## Template
 
