@@ -8,6 +8,10 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 ## [Unreleased]
 
+## [v1.2.0] - 2026-11-09
+
+First-run experience, a safer mode password, and the removal of the dashboard. **Breaking:** `chameleon dashboard` is gone; see "Removed".
+
 ### Added
 - At the end of a successful `migrate --apply`, when the project is in `readonly` mode, the output says so, says that another apply will be refused, and lists the two commands that unlock it (`chameleon config auth set-password`, `chameleon config set mode=standard`). Before, the user found out on the next apply.
 - `chameleon init` can interactively select or detect a PostgreSQL connection, create a local PostgreSQL 16 compose file, and optionally create the example schema. Equivalent flags are available for non-interactive use.
@@ -19,6 +23,9 @@ and this project adheres to Semantic Versioning (pre-1.0).
 - `make tag` moved to the root (`scripts/tag-release.sh`). It now refuses to tag unless the branch is `main` and equal to `origin/main`, and the CHANGELOG and RELEASE.md already describe the version; the version can be passed as `make tag VERSION=X.Y.Z`; output messages are in English; the release commit no longer carries a `Co-authored-by` trailer.
 - `chameleon init` no longer writes `features.rollback_enabled`, `features.audit_logging`, `features.backup_on_migrate` or `safety.backup_before_apply`. None of them had any behavior behind it. Files that still set one of them to `true` keep loading, and every command prints one warning per key saying it is not implemented and has no effect.
 - `migrate --apply` always prints that ChameleonDB creates no backup (before, it printed it only when `backup_on_migrate` was set).
+- The key of a belongs-to relation is resolved from the `via` of the has-many on the other entity that points back, or from a field named `<relation>_id`. `chameleon validate` now reports a belongs-to relation whose key cannot be resolved (or is ambiguous, or has a type different from the target's `id`) instead of leaving the error to the first query.
+- **Go runtime:** `engine.NewEngineAt(projectDir)` opens the project in a given directory, so a program no longer has to run from the project root. `engine.NewEngine()` does the same through `CHAMELEON_PROJECT_DIR` and keeps using the working directory when the variable is not set.
+- The errors of `NewEngine`/`NewEngineAt` name the directory that was searched. A missing vault says to run `chameleon migrate --apply` or to point to the project, and a failed integrity check says which check failed (it said only "integrity check failed").
 
 ### Removed
 - **Breaking:** removed the `chameleon dashboard` and `chameleon dashboard serve` commands. The dashboard's database write endpoints lacked session authentication and a Host check; a replacement requires a separate design.
@@ -26,11 +33,6 @@ and this project adheres to Semantic Versioning (pre-1.0).
 ### Fixed
 - The generated example schema gives UUID primary keys a default value, and generated README text now documents PostgreSQL as the supported database.
 - `Include` on a belongs-to relation (`author: User`) failed with a missing-foreign-key error. It now loads the referenced rows, once each, and skips NULL keys. A filter through a belongs-to relation (`author.name`) now joins on the local key.
-
-### Changed
-- The key of a belongs-to relation is resolved from the `via` of the has-many on the other entity that points back, or from a field named `<relation>_id`. `chameleon validate` now reports a belongs-to relation whose key cannot be resolved (or is ambiguous, or has a type different from the target's `id`) instead of leaving the error to the first query.
-- **Go runtime:** `engine.NewEngineAt(projectDir)` opens the project in a given directory, so a program no longer has to run from the project root. `engine.NewEngine()` does the same through `CHAMELEON_PROJECT_DIR` and keeps using the working directory when the variable is not set.
-- The errors of `NewEngine`/`NewEngineAt` name the directory that was searched. A missing vault says to run `chameleon migrate --apply` or to point to the project, and a failed integrity check says which check failed (it said only "integrity check failed").
 
 ### Security
 - The mode password is stored with Argon2id (OWASP minimum parameters, PHC format) instead of one round of salted SHA-256. Existing passwords keep working and are upgraded the first time they are verified.
