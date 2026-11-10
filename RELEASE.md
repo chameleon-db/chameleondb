@@ -1,6 +1,6 @@
 # ChameleonDB releases
 
-**Current release: [v1.1.3-alpha](https://github.com/chameleon-db/chameleondb/releases/tag/v1.1.3-alpha)** (2026-11-08)
+**Current release: [v1.2.0-alpha](https://github.com/chameleon-db/chameleondb/releases/tag/v1.2.0-alpha)** (2026-11-09)
 
 This page is the overview of the current release: what it contains, what works, what does not, how to install it and what we are working on. The complete, version-by-version list of changes is the [CHANGELOG](CHANGELOG.md).
 
@@ -16,51 +16,48 @@ This page is the overview of the current release: what it contains, what works, 
 | **Security** | Report vulnerabilities privately, see [SECURITY.md](SECURITY.md) |
 | **Documentation** | [docs.chameleondb.dev](https://docs.chameleondb.dev) |
 
-## In this release: v1.1.3-alpha
+## In this release: v1.2.0-alpha
 
-v1.1.3-alpha changes the install path only; the core and the runtime are the same as in v1.1.2-alpha.
+The first run is easier and the mode password is stored properly. One command was removed, so read "Behavior changes" before upgrading.
 
-- The install script works on macOS (Apple Silicon) and on Linux arm64. Before, it failed with a 404 on macOS because the archive name did not match.
-- Every archive has its SHA-256 file attached to the release, and the install script verifies it.
-- The macOS archive is now `chameleon-macos-arm64` (it was called `universal` but contained arm64 only).
+### First run
 
-## Previous release: v1.1.2-alpha
+- `chameleon init` asks how to connect to PostgreSQL when a terminal is attached: keep `${DATABASE_URL}`, detect a connection (environment, `.env`, `.env.example`, compose files), write a `docker-compose.yml` with PostgreSQL 16 and start it, or type a connection string. A connection is tested before it is used. Every question has a flag (`--db-url`, `--detect-db`, `--compose`, `--no-example`), and nothing is asked without a terminal, with `CI` set or with `--no-input`.
+- `init` never overwrites a file it did not create. The guide is `CHAMELEON.md` (your `README.md` is never touched), `.env.example` only gets an appended `# chameleon env` block, and the example schema is created only if `schemas/` has no `.cham` file.
+- After the `migrate --apply` that creates the vault, a terminal session is offered a password and `standard` mode. Scripts can use `--set-mode standard` with `CHAMELEON_MODE_PASSWORD`. If the project stays in `readonly`, the apply output says so and lists the two commands that unlock it.
+- The example schema declares `id: uuid primary default uuid()`.
 
-A maintenance release with fixes to mutations, debugging and the CLI. It does not change the schema language or the migrations.
+### Security
 
-### Mutations
+- The mode password is stored with Argon2id. Existing passwords keep working and are upgraded when first verified. Changing a password requires the current one.
+- `verify`, `migrate` and the engine fail when `mode.json` was edited outside the CLI. This detects the edit; it does not prevent it. See [ADR-0013](docs/adr/0013-mode-and-password-threat-model.md) for what modes and the password do and do not protect.
+- The `chameleon dashboard` server was removed: it accepted record writes with no session token and only an origin filter. It will return only with its own design.
 
-- Deleting a record that still has children returns `ForeignKeyConstraintError`, with the dependent table. Before, it returned a `ForeignKeyError` that said the referenced record did not exist.
-- `DELETE` filters are generated in a fixed order, as `UPDATE` already was.
-- A `nil` filter value now means `IS NULL` (`eq`) or `IS NOT NULL` (`neq`, `ne`). Before, it produced `= NULL`, which never matches.
-- `SafetyError` no longer suggests `ForceUpdateAll` and `ForceDeleteAll`, which do not exist.
+### Runtime and core
 
-### Debugging
-
-- `CHAMELEON_DEBUG` works: `1`, `true` or `sql` print the SQL and its parameters; `trace` adds durations and row counts; `explain` is the most verbose. It applies to queries and mutations.
-- `.Debug()` on a query with `Include()` prints the eager-loading queries as well.
-- Parameter values of columns that look like secrets (`password`, `token`, `secret`, `hash`, `api_key`, ...) are shown as `[REDACTED]`.
-- A query's SQL is generated once per execution instead of twice.
-
-### CLI and vault
-
-- `chameleon status` and `chameleon validate` read the schema files configured in `.chameleon.yml` (`schema.paths`). Before, projects created with `init` (schemas in `schemas/`) were not checked.
-- `.chameleon/.gitignore` ignores `vault/mode_auth.json`, the verifier of the mode password.
-- `chameleon version` prints a single line.
-- The install script works when piped from `curl` and its closing message no longer repeats the product name.
+- `Include` on a belongs-to relation (`Post.author`) works, and a filter through one (`author.name`) joins on the local key. `validate` reports a belongs-to relation whose key cannot be resolved.
+- `engine.NewEngineAt(projectDir)` and `CHAMELEON_PROJECT_DIR` open a project from any working directory. Errors name the directory that was searched.
+- `init` writes the four config flags that have no behavior (`rollback_enabled`, `audit_logging`, `backup_on_migrate`, `backup_before_apply`) as `false`, with a comment, and warns when a file sets one to `true` ([ADR-0012](docs/adr/0012-config-flags-roadmap.md)). `migrate --apply` always says that no backup is created.
+- A `Makefile` at the repository root; `make tag` runs `scripts/tag-release.sh`.
 
 ### Behavior changes
 
-Read these before upgrading from v1.1.1:
+Read these before upgrading from v1.1.3:
 
 | Change | What to do |
 |---|---|
-| Mutation `like` and `ilike` now mean "contains", as in queries: `"ana"` matches `%ana%`. `%`, `_` and `\` in the value match literally. | If you passed your own `%` pattern, remove the wildcards. |
-| A `nil` filter value in a mutation is `IS NULL` or `IS NOT NULL`. Any other operator with `nil` returns an error. | Check filters that passed `nil` and relied on matching nothing. |
-| `vault/mode_auth.json` is ignored by git for new and upgraded projects. A file that is already committed stays tracked. | Run `git rm --cached .chameleon/vault/mode_auth.json` and commit. |
-| Debug output redacts values of columns that look like secrets. | None. Other values are still printed, so do not enable debug output where logs hold personal data. |
+| `chameleon dashboard` and `dashboard serve` no longer exist. | Use the CLI. If you scripted the dashboard API, it has no replacement yet. |
+| `init` writes `CHAMELEON.md` instead of `README.md`. | Nothing for existing projects. |
+| Setting a mode password when one exists requires the current one (`CHAMELEON_MODE_PASSWORD`, and `CHAMELEON_MODE_PASSWORD_NEW` for the new one when not interactive). | Update scripts that rotate the password. |
+| A `mode.json` that disagrees with the last mode change in the integrity log makes `verify`, `migrate` and the engine fail. | Change the mode with `chameleon config set mode=...`, not by editing the file. |
+| Configs that set `rollback_enabled`, `audit_logging`, `backup_on_migrate` or `backup_before_apply` to `true` print a warning on every command. | Set them to `false`; they had no effect. |
+| New dependency `golang.org/x/crypto` (Argon2). | Only when building from source: run `go mod tidy`. |
 
 No migration is needed. Existing tables are never altered by ChameleonDB.
+
+## Previous release: v1.1.3-alpha
+
+Changed the install path only. The install script works on macOS (Apple Silicon) and Linux arm64; every archive has a SHA-256 file that the script verifies; the macOS archive is `chameleon-macos-arm64` (it was called `universal`). Changes of v1.1.2 and earlier are in the [CHANGELOG](CHANGELOG.md).
 
 ## What works today
 
@@ -70,7 +67,7 @@ No migration is needed. Existing tables are never altered by ChameleonDB.
 | Type checker (`validate`, `check`) | Working | Rejects invalid primary keys, `vector(0)`, mismatched has-many keys and cycles between entities |
 | Migrations (`migrate`) | Partial | Create-only: `CREATE TABLE IF NOT EXISTS` in a deterministic order. Existing tables are left as they are. |
 | Schema Vault | Working | Versions with a SHA-256 hash of the schema source and the parent version, stored locally. Detects edits made outside the tool. |
-| Integrity modes | Working | `readonly`, `standard`, `privileged`, `emergency`. They govern what the CLI allows, not database permissions. |
+| Integrity modes | Working | `readonly`, `standard`, `privileged`, `emergency`. They guard against accidental changes through the CLI; they are not access control and do not set database permissions. The password is stored with Argon2id. |
 | Journal | Working | Operation log with `journal last`, `migrations`, `errors`, `schema` and `search` |
 | Introspection | Working | Generates a schema from PostgreSQL and warns about columns it cannot map |
 | Go data-access layer | Working, frozen | Query and mutation builders with eager loading, write guards (no update or delete without a filter) and typed constraint errors. Scope under review ([ADR-0007](docs/adr/0007-data-access-layer-scope.md)). |
@@ -79,7 +76,7 @@ No migration is needed. Existing tables are never altered by ChameleonDB.
 
 ### What the guarantees mean
 
-- The vault detects changes made to its files outside the tool. It does not stop someone who can edit both the files and their hashes.
+- The vault detects changes made to its files outside the tool, including an edit of `mode.json`. It does not stop someone who can edit the files and the integrity log together.
 - Integrity modes do not replace database permissions. A user with direct access to the database is not restricted by them.
 - The schema hash is computed over the source text, so formatting changes alter it. A canonical form is planned ([ADR-0005](docs/adr/0005-canonical-schema-digest.md)).
 
@@ -90,10 +87,11 @@ No migration is needed. Existing tables are never altered by ChameleonDB.
 - **No transactions** in the data-access layer; each mutation is its own statement.
 - **Types:** `int` maps to a 32-bit `INTEGER` and `timestamp` to `TIMESTAMP` without time zone. Both are planned to change; see the plan below.
 - **Table names** are derived differently by the migration generator and the mutation layer for some multi-word or irregular names. A fix that makes them identical is planned and will come with migration notes.
-- **Filters:** the `in` operator, `OR` and `time.Time` values are not supported. Pass dates as strings.
+- **Filters:** the `in` operator, `OR` and `time.Time` values are not supported. Pass dates as strings. A filter can follow one relation (`posts.published`); two or more fail with `UnsupportedPath`.
+- **`updated_at`:** ChameleonDB does not maintain it. Set it in your code when you update a row.
 - **Intel Macs and Windows on ARM** have no prebuilt binary. Build from source.
 - **Install script:** it does not install on Windows (download the archive by hand). It verifies the SHA-256 checksum of the archive, but the checksum comes from the same release page as the archive, so it detects corrupted downloads, not a compromised release. Release signing is not available yet.
-- **Developer servers** (`playground`, `dashboard`) are for local use only. Do not expose them to a network.
+- **Developer server** (`playground-sql serve`) is for local use only. Do not expose it to a network.
 
 ## What we are working on
 
@@ -115,7 +113,7 @@ See the [product definition](docs/product-definition.md) for scope and the [arch
 curl -sSL https://chameleondb.dev/install | sh
 ```
 
-Supported: Linux x86-64 and arm64, macOS on Apple Silicon. The script installs `chameleon`, the shared library, the C header and a `pkg-config` file, and verifies the SHA-256 checksum of the archive. It asks before reinstalling. Set `CHAMELEON_INSTALL_DIR`, `CHAMELEON_LIB_DIR`, `CHAMELEON_INCLUDE_DIR` or `CHAMELEON_PKGCONFIG_DIR` to change the destinations.
+Supported: Linux x86-64 and arm64, macOS on Apple Silicon. The script installs `chameleon`, the shared library, the C header and a `pkg-config` file, and verifies the SHA-256 checksum of the archive. It asks before reinstalling. Set `CHAMELEON_INSTALL_DIR`, `CHAMELEON_LIB_DIR`, `CHAMELEON_INCLUDE_DIR` or `CHAMELEON_PKGCONFIG_DIR` to change the destinations. With a `CHAMELEON_LIB_DIR` other than `/usr/local/lib`, the script reports a failed check even though the files are installed; export `LD_LIBRARY_PATH` (Linux) or `DYLD_LIBRARY_PATH` (macOS) with that directory.
 
 On Intel Macs, build from source (below).
 
@@ -142,23 +140,22 @@ You need Go 1.25.6 or newer, a stable Rust toolchain, a C compiler and `make`.
 
 ```bash
 chameleon version
-# ChameleonDB v1.1.3-alpha
+# ChameleonDB v1.2.0-alpha
 ```
 
 ## Try it
 
 ```bash
 mkdir test-chameleondb && cd test-chameleondb
-chameleon init
-# edit schemas/example.cham, or write your own entities
+chameleon init                        # asks how to connect; CHAMELEON.md explains the layout
 chameleon validate
 chameleon migrate --dry-run           # preview the SQL
-chameleon config auth set-password    # recommended before changing the mode
-chameleon config set mode=standard    # new vaults start in readonly
-chameleon migrate --apply
+chameleon migrate --apply             # then offers a password and standard mode
 chameleon status
 chameleon journal schema
 ```
+
+If you decline the password, the project stays in `readonly` and the next `migrate --apply` is refused until you run `chameleon config auth set-password` and `chameleon config set mode=standard`.
 
 Use a test database. See the [documentation](https://docs.chameleondb.dev) for the schema language, queries, mutations and the security model.
 
@@ -166,6 +163,8 @@ Use a test database. See the [documentation](https://docs.chameleondb.dev) for t
 
 | Version | Date | Highlights |
 |---|---|---|
+| [v1.2.0-alpha](CHANGELOG.md) | 2026-11-09 | `init` asks how to connect and never overwrites files, password and `standard` mode offered after the first apply, Argon2id mode password, `mode.json` tampering detected, belongs-to `Include`, `NewEngineAt`, `dashboard` removed |
+| [v1.1.3-alpha](CHANGELOG.md) | 2026-11-08 | Install script fixes for macOS and Linux arm64, SHA-256 files attached to releases |
 | [v1.1.2-alpha](CHANGELOG.md) | 2026-11-06 | Mutation filter fixes (`IS NULL`, `like` as contains), foreign-key delete error, `CHAMELEON_DEBUG`, debug of eager queries, CLI reads `schema.paths`, `mode_auth.json` ignored by git |
 | [v1.1.1-alpha](CHANGELOG.md) | 2026-11-06 | Stricter `validate`, self-referential relations, `introspect` fixes and warnings, journal rewrite and `journal search` |
 | [v1.1.0-alpha](CHANGELOG.md) | 2026-11 | Security hardening of query and mutation generation (GHSA-2r6g-424r-6xmr), `migrate` is create-only and no longer drops tables, deterministic DDL |

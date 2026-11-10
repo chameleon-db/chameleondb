@@ -12,7 +12,7 @@ chameleon/          Go runtime and CLI (cobra), vault, journal, PostgreSQL conne
   cmd/chameleon/      CLI commands
   pkg/engine/         query and mutation engine (public Go API)
   pkg/vault/          schema vault and integrity modes
-  internal/           config, state, journal, FFI bridge, admin (dashboard)
+  internal/           config, state, journal, FFI bridge, admin directory, init wizard
   tests/integration/  integration tests (need PostgreSQL)
 examples/           sample schemas
 dist/               install and uninstall scripts

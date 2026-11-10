@@ -23,7 +23,6 @@ Dispositions: **keep** (core to the vision), **rework** (keep the name, change b
 | `config auth set-password` | Set or rotate the admin password for mode upgrades | rework | Depends on [ADR-0006](adr/0006-levels-of-control-and-role-enforcement.md); password hashing to be reviewed |
 | `query [entity]` | Interactive query execution (for testing) | freeze | Data-access scope: [ADR-0007](adr/0007-data-access-layer-scope.md) |
 | `playground-sql`, `playground-sql serve` | Compile SQL from a JSON payload; minimal HTTP server for it | freeze | Developer tool; must bind to loopback and require a token if kept |
-| `dashboard`, `dashboard serve` | Local dashboard and its API server | freeze | Scope to be defined after the core epics |
 | `uninstall` | Uninstall ChameleonDB | keep | |
 | `version` | Show version | keep | |
 

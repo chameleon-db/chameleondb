@@ -10,6 +10,15 @@ import (
 
 	"github.com/chameleon-db/chameleondb/chameleon/internal/admin"
 	"github.com/chameleon-db/chameleondb/chameleon/internal/config"
+	"github.com/chameleon-db/chameleondb/chameleon/internal/initwizard"
+)
+
+var (
+	initDBURL     string
+	initCompose   bool
+	initDetectDB  bool
+	initNoExample bool
+	initNoInput   bool
 )
 
 var initCmd = &cobra.Command{
@@ -17,13 +26,26 @@ var initCmd = &cobra.Command{
 	Short: "Initialize a new ChameleonDB project",
 	Long: `Create a new ChameleonDB project with schema and configuration.
 
-This will create:
+Always creates:
   .chameleon.yml        Main configuration file
   .chameleon/           Admin directory (config, state, journal, backups)
-  schemas/              Directory for schema files
-  README.md             Getting started guide
+  schemas/              Schema files; example.cham only if schemas/ has none
+  CHAMELEON.md          Getting started guide
+
+When asked for (a question with a terminal, or a flag):
+  docker-compose.yml    PostgreSQL 16 for local development
+  .env.example          DATABASE_URL with a placeholder password
+
+init never overwrites a file it did not create. README.md is never touched.
+An existing .env.example only gets a block starting with "# chameleon env"
+appended, and only if it has no DATABASE_URL. A file that already exists is
+skipped and the output says so.
 
 If no name is provided, initializes in current directory.`,
+	Example: `  chameleon init myproject
+  chameleon init --detect-db
+  chameleon init --db-url ******localhost:5432/app --no-example
+  chameleon init --compose --no-input`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var workDir string
@@ -60,6 +82,15 @@ If no name is provided, initializes in current directory.`,
 			printInfo("Initializing ChameleonDB in current directory: %s", workDir)
 		}
 
+		choices, err := initwizard.Resolve(
+			initwizard.NewPrompter(os.Stdin, os.Stdout),
+			initwizard.Flags{DBURL: initDBURL, Compose: initCompose, DetectDB: initDetectDB, NoExample: initNoExample},
+			initwizard.Env{Dir: workDir, Getenv: os.Getenv, Interactive: interactiveTerminal(initNoInput), Ping: pingPostgres},
+		)
+		if err != nil {
+			return err
+		}
+
 		// Initialize admin structure (.chameleon/)
 		printInfo("Creating .chameleon/ structure...")
 		factory := admin.NewManagerFactory(workDir)
@@ -93,24 +124,71 @@ If no name is provided, initializes in current directory.`,
 		}
 
 		// Create example schema
-		schemaPath := filepath.Join(schemasDir, "example.cham")
-		schemaContent := exampleSchema()
-		if err := os.WriteFile(schemaPath, []byte(schemaContent), 0644); err != nil {
-			return fmt.Errorf("failed to create example schema: %w", err)
+		if choices.CreateExample && !initwizard.HasSchemaFiles(schemasDir) {
+			schemaPath := filepath.Join(schemasDir, "example.cham")
+			created, err := initwizard.WriteFileIfAbsent(schemaPath, []byte(exampleSchema()), 0644)
+			if err != nil {
+				return fmt.Errorf("failed to create example schema: %w", err)
+			}
+			if created {
+				printSuccess("Created schemas/example.cham")
+			}
+		} else if choices.CreateExample {
+			printWarning("schemas/ already contains a .cham file; example.cham was not created")
 		}
-		printSuccess("Created schemas/example.cham")
 
-		// Create README
-		printInfo("Creating README.md...")
-		readmePath := filepath.Join(workDir, "README.md")
-		projectName := filepath.Base(workDir)
-		readmeContent := exampleReadme(projectName)
-		if err := os.WriteFile(readmePath, []byte(readmeContent), 0644); err != nil {
-			return fmt.Errorf("failed to create README.md: %w", err)
+		if choices.WriteCompose {
+			created, err := initwizard.WriteComposeFile(workDir)
+			if err != nil {
+				return err
+			}
+			if created {
+				printSuccess("Created %s (PostgreSQL 16)", initwizard.ComposeFileName)
+			} else {
+				printWarning("A compose file already exists; it was not changed")
+			}
+
+			if choices.RunCompose {
+				printInfo("Starting PostgreSQL (docker compose up -d)...")
+				if err := runDockerComposeUp(workDir); err != nil {
+					printWarning("docker compose failed: %v", err)
+				} else if err := waitForPostgres(choices.URL, 20); err != nil {
+					printWarning("%v", err)
+				} else {
+					printSuccess("PostgreSQL is accepting connections")
+				}
+			}
 		}
-		printSuccess("Created README.md")
+		if choices.URL != "" {
+			result, err := initwizard.WriteEnvExample(workDir, choices.URL)
+			if err != nil {
+				return err
+			}
+			switch result {
+			case initwizard.EnvCreated:
+				printSuccess("Created .env.example (placeholder password)")
+			case initwizard.EnvAppended:
+				printSuccess("Added a \"# chameleon env\" block to the end of .env.example (placeholder password)")
+			case initwizard.EnvUnchanged:
+				printInfo(".env.example already has a DATABASE_URL; it was not changed")
+			}
+		}
+
+		// Create CHAMELEON.md without touching an existing guide.
+		guidePath := filepath.Join(workDir, "CHAMELEON.md")
+		guide := exampleReadme(filepath.Base(workDir))
+		created, err := initwizard.WriteFileIfAbsent(guidePath, []byte(guide), 0644)
+		if err != nil {
+			return fmt.Errorf("failed to create CHAMELEON.md: %w", err)
+		}
+		if created {
+			printSuccess("Created CHAMELEON.md")
+		} else {
+			printWarning("CHAMELEON.md already exists; it was not changed")
+		}
 
 		// Print status
+		projectName := filepath.Base(workDir)
 		fmt.Println()
 		printSuccess("Project initialized successfully!")
 		fmt.Println()
@@ -122,21 +200,34 @@ If no name is provided, initializes in current directory.`,
 		fmt.Println("    ├── journal/        Audit logs (not versioned)")
 		fmt.Println("    └── backups/        Backup files (not versioned)")
 		fmt.Println("  schemas/              Schema files")
-		fmt.Println("    └── example.cham    Example schema")
-		fmt.Println("  README.md             Getting started guide")
+		if choices.CreateExample {
+			fmt.Println("    └── example.cham    Example schema")
+		}
+		fmt.Println("  CHAMELEON.md          Getting started guide")
 		fmt.Println()
 
 		fmt.Println("Next steps:")
 		if len(args) > 0 {
 			fmt.Printf("  cd %s\n", projectName)
 		}
-		fmt.Println("  export DATABASE_URL=\"postgresql://user:password@localhost/dbname\"")
+		if choices.URL != "" {
+			fmt.Printf("  export DATABASE_URL=\"%s\"\n", choices.URL)
+		} else {
+			fmt.Println("  export DATABASE_URL=\"postgresql://user:password@localhost/dbname\"")
+		}
 		fmt.Println("  chameleon migrate --dry-run")
 		fmt.Println("  chameleon migrate --apply")
 		fmt.Println()
-		fmt.Println("Security tip:")
-		fmt.Println("  Set an admin password to protect privileged/emergency mode changes.")
-		fmt.Println("  Run: chameleon config auth set-password")
+		for _, note := range choices.Notes {
+			printWarning("%s", note)
+		}
+		if len(choices.Notes) > 0 {
+			fmt.Println()
+		}
+		fmt.Println("About the mode:")
+		fmt.Println("  The first 'chameleon migrate --apply' leaves the project in readonly mode,")
+		fmt.Println("  which guards against accidental schema changes. You will be asked there")
+		fmt.Println("  whether to set a password and switch to standard mode.")
 		fmt.Println()
 		fmt.Println("Edit schemas/*.cham to define your database schema.")
 		fmt.Println("Configuration: .chameleon.yml (version controlled)")
@@ -148,6 +239,11 @@ If no name is provided, initializes in current directory.`,
 }
 
 func init() {
+	initCmd.Flags().StringVar(&initDBURL, "db-url", "", "PostgreSQL connection string to use (printed as an export line; the config keeps ${DATABASE_URL})")
+	initCmd.Flags().BoolVar(&initCompose, "compose", false, "write a docker-compose.yml with PostgreSQL 16")
+	initCmd.Flags().BoolVar(&initDetectDB, "detect-db", false, "use the first PostgreSQL connection found in the environment, .env files or compose files")
+	initCmd.Flags().BoolVar(&initNoExample, "no-example", false, "do not create schemas/example.cham")
+	initCmd.Flags().BoolVar(&initNoInput, "no-input", false, "never ask questions (also the case without a terminal or with CI set)")
 	rootCmd.AddCommand(initCmd)
 }
 
@@ -156,14 +252,14 @@ func exampleSchema() string {
 // This is a simple blog schema to get you started
 
 entity User {
-    id: uuid primary,
+    id: uuid primary default uuid(),
     email: string unique,
     name: string,
     created_at: timestamp default now(),
 }
 
 entity Post {
-    id: uuid primary,
+    id: uuid primary default uuid(),
     title: string,
     content: string,
     published: bool,
@@ -172,7 +268,7 @@ entity Post {
 }
 
 entity Comment {
-    id: uuid primary,
+    id: uuid primary default uuid(),
     content: string,
     post_id: uuid,
     user_id: uuid,
@@ -184,7 +280,7 @@ entity Comment {
 func exampleReadme(projectName string) string {
 	return `# ` + projectName + `
 
-ChameleonDB project initialized with ` + "`chameleon init`" + `.
+ChameleonDB project initialized with ` + "`chameleon init`" + `. This file is a quick guide; your own README.md is not touched.
 
 ## Quick Start
 
@@ -221,19 +317,20 @@ chameleon migrate --apply
 │   ├── config.yml          Source config
 │   ├── state/              Current DB state
 │   ├── journal/            Audit logs
-│   └── backups/            Migration backups
+│   └── backups/            Reserved: ChameleonDB does not create backups yet
 ├── schemas/                Schema files
 │   └── example.cham        Example schema
-└── README.md               This file
+└── CHAMELEON.md            This file
 ` + "```" + `
 
 ## Configuration
 
 Edit ` + "`.chameleon.yml`" + ` to:
-- Change database driver (postgresql, mysql, sqlite)
+- Review the database connection (PostgreSQL)
 - Set connection string or use ` + "`${DATABASE_URL}`" + ` env var
-- Configure features (auto_migration, dry_run_default)
-- Set safety options (validation, confirmation)
+- Set the schema paths (` + "`schema.paths`" + `)
+
+Keys marked "Planned, not implemented" have no effect yet.
 
 ## Schema
 
@@ -241,14 +338,14 @@ Define your database schema in ` + "`schemas/*.cham`" + `:
 
 ` + "```" + `
 entity User {
-    id: uuid primary,
+    id: uuid primary default uuid(),
     email: string unique,
     name: string,
     created_at: timestamp default now(),
 }
 
 entity Post {
-    id: uuid primary,
+    id: uuid primary default uuid(),
     title: string,
     author_id: uuid,
     created_at: timestamp default now(),
@@ -264,8 +361,17 @@ Migrations are tracked in ` + "`.chameleon/state/migrations/manifest.json`" + `.
 Each migration:
 - Has a unique version (timestamp-based)
 - Includes schema hash for integrity
-- Supports rollback (planned v0.2)
-- Is backed up before applying
+- Only creates what is missing; it never alters existing tables
+
+ChameleonDB does not create backups and has no rollback yet (both are planned).
+Take your own backup (` + "`pg_dump`" + `) before applying.
+
+## Mode
+
+The first ` + "`chameleon migrate --apply`" + ` leaves the project in readonly mode, which
+guards against accidental schema changes (it is not access control). To change
+the schema later: ` + "`chameleon config auth set-password`" + `, then
+` + "`chameleon config set mode=standard`" + `.
 
 View history:
 
