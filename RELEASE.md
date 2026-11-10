@@ -93,7 +93,7 @@ No migration is needed. Existing tables are never altered by ChameleonDB.
 - **Filters:** the `in` operator, `OR` and `time.Time` values are not supported. Pass dates as strings.
 - **Intel Macs and Windows on ARM** have no prebuilt binary. Build from source.
 - **Install script:** it does not install on Windows (download the archive by hand). It verifies the SHA-256 checksum of the archive, but the checksum comes from the same release page as the archive, so it detects corrupted downloads, not a compromised release. Release signing is not available yet.
-- **Developer servers** (`playground`, `dashboard`) are for local use only. Do not expose them to a network.
+- **Developer server** (`playground-sql serve`) is for local use only. Do not expose it to a network.
 
 ## What we are working on
 

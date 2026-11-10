@@ -51,7 +51,7 @@ flowchart LR
 | Journal and state | Local record of operations and migration state | Go |
 | Introspection | Generate a schema from an existing PostgreSQL database | Go |
 | CLI | User-facing commands ([reference](../cli-reference.md)) | Go |
-| Dashboard and playground | Local HTTP servers for a dashboard API and SQL compilation experiments | Go |
+| Playground | Local HTTP server for SQL compilation experiments | Go |
 
 ### Main flows
 

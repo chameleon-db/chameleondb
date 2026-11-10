@@ -235,19 +235,118 @@ func TestEnvExample_NeverContainsThePassword(t *testing.T) {
 	if strings.Contains(out, "s3cret") {
 		t.Fatalf("password leaked: %s", out)
 	}
-	if out != "DATABASE_URL=postgresql://app:change-me@localhost:5432/db?sslmode=disable\n" {
-		t.Errorf("unexpected content: %s", out)
+	want := "# chameleon env\nDATABASE_URL=postgresql://app:change-me@localhost:5432/db?sslmode=disable\n"
+	if out != want {
+		t.Errorf("unexpected content: %q", out)
 	}
-	if out := EnvExample("postgresql://localhost/db"); out != "DATABASE_URL=postgresql://localhost/db\n" {
-		t.Errorf("a URL without credentials is kept as is: %s", out)
+	if out := EnvExample("postgresql://localhost/db"); out != "# chameleon env\nDATABASE_URL=postgresql://localhost/db\n" {
+		t.Errorf("a URL without credentials is kept as is: %q", out)
+	}
+}
+
+func readFile(t *testing.T, dir, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestWriteEnvExample_CreatesWhenAbsent(t *testing.T) {
+	dir := t.TempDir()
+	res, err := WriteEnvExample(dir, "postgresql://a:pw@h/d")
+	if err != nil || res != EnvCreated {
+		t.Fatalf("res=%v err=%v", res, err)
+	}
+	if got := readFile(t, dir, ".env.example"); got != "# chameleon env\nDATABASE_URL=postgresql://a:change-me@h/d\n" {
+		t.Errorf("unexpected content %q", got)
+	}
+}
+
+func TestWriteEnvExample_AppendsAndKeepsExistingContent(t *testing.T) {
+	for _, original := range []string{"PORT=3000\n", "PORT=3000", "PORT=3000\n\n", "# only a comment\n"} {
+		dir := t.TempDir()
+		write(t, dir, ".env.example", original)
+
+		res, err := WriteEnvExample(dir, "postgresql://a:pw@h/d")
+		if err != nil || res != EnvAppended {
+			t.Fatalf("%q: res=%v err=%v", original, res, err)
+		}
+
+		got := readFile(t, dir, ".env.example")
+		if !strings.HasPrefix(got, original) {
+			t.Errorf("%q: existing content must stay as it was, got %q", original, got)
+		}
+		if !strings.Contains(got, "\n\n# chameleon env\nDATABASE_URL=postgresql://a:change-me@h/d\n") {
+			t.Errorf("%q: the block is separated by a blank line, got %q", original, got)
+		}
+		if strings.Contains(got, "pw") {
+			t.Errorf("%q: password leaked", original)
+		}
+	}
+}
+
+func TestWriteEnvExample_IsIdempotentAndRespectsExistingURL(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, ".env.example", "PORT=3000\n")
+	if _, err := WriteEnvExample(dir, "postgresql://a:pw@h/d"); err != nil {
+		t.Fatal(err)
+	}
+	after := readFile(t, dir, ".env.example")
+
+	res, err := WriteEnvExample(dir, "postgresql://other:pw@h/d")
+	if err != nil || res != EnvUnchanged || readFile(t, dir, ".env.example") != after {
+		t.Errorf("a second run must change nothing: res=%v err=%v", res, err)
 	}
 
-	dir := t.TempDir()
-	if created, err := WriteEnvExample(dir, "postgresql://a:b@h/d"); err != nil || !created {
-		t.Fatalf("create: %v %v", created, err)
+	own := t.TempDir()
+	write(t, own, ".env.example", "DATABASE_URL=postgresql://mine:x@h/mine\n")
+	res, _ = WriteEnvExample(own, "postgresql://a:pw@h/d")
+	if res != EnvUnchanged || readFile(t, own, ".env.example") != "DATABASE_URL=postgresql://mine:x@h/mine\n" {
+		t.Errorf("an existing DATABASE_URL is the user's: res=%v", res)
 	}
-	if created, _ := WriteEnvExample(dir, "postgresql://a:other@h/d"); created {
-		t.Error("an existing .env.example must not be overwritten")
+}
+
+func TestWriteFileIfAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "CHAMELEON.md")
+
+	created, err := WriteFileIfAbsent(path, []byte("ours"), 0644)
+	if err != nil || !created {
+		t.Fatalf("first write: created=%v err=%v", created, err)
+	}
+
+	created, err = WriteFileIfAbsent(path, []byte("replacement"), 0644)
+	if err != nil || created {
+		t.Fatalf("second write must be a no-op: created=%v err=%v", created, err)
+	}
+	if got := readFile(t, dir, "CHAMELEON.md"); got != "ours" {
+		t.Errorf("existing content was replaced: %q", got)
+	}
+
+	if _, err := WriteFileIfAbsent(filepath.Join(dir, "missing", "x"), nil, 0644); err == nil {
+		t.Error("an unwritable path is an error, not a silent skip")
+	}
+}
+
+func TestHasSchemaFiles(t *testing.T) {
+	dir := t.TempDir()
+	if HasSchemaFiles(filepath.Join(dir, "schemas")) {
+		t.Error("a missing directory has none")
+	}
+
+	schemas := filepath.Join(dir, "schemas")
+	if err := os.MkdirAll(filepath.Join(schemas, "nested"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, schemas, "notes.txt", "x")
+	if HasSchemaFiles(schemas) {
+		t.Error("only .cham files count")
+	}
+	write(t, filepath.Join(schemas, "nested"), "user.cham", "entity User {}")
+	if !HasSchemaFiles(schemas) {
+		t.Error("a nested .cham file counts")
 	}
 }
 
@@ -466,5 +565,38 @@ func TestOfferStandardMode_ErrorsAreReported(t *testing.T) {
 	ok, err := OfferStandardMode(o)
 	if ok || err == nil || !strings.Contains(err.Error(), "password was set") {
 		t.Fatalf("a failed mode change after the password must say so: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestResolve_ExistingSchemasSkipTheExample(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "schemas"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, "schemas"), "mine.cham", "entity User {}")
+
+	// Interactive: the example question is not asked.
+	p, out := newPrompter("\n")
+	res, err := Resolve(p, Flags{}, Env{Dir: dir, Getenv: noEnv, Interactive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.CreateExample || strings.Contains(out.String(), "example.cham") {
+		t.Errorf("no example next to existing schemas, and no question: %+v %q", res, out.String())
+	}
+	if len(res.Notes) != 1 || !strings.Contains(res.Notes[0], "already has .cham files") {
+		t.Errorf("the skip is explained: %+v", res.Notes)
+	}
+
+	// Not interactive: same.
+	res, _ = Resolve(p, Flags{}, Env{Dir: dir, Getenv: noEnv})
+	if res.CreateExample {
+		t.Error("no example next to existing schemas without a terminal either")
+	}
+
+	// With --no-example there is nothing to explain.
+	res, _ = Resolve(p, Flags{NoExample: true}, Env{Dir: dir, Getenv: noEnv})
+	if res.CreateExample || len(res.Notes) != 0 {
+		t.Errorf("--no-example is already a decision: %+v", res)
 	}
 }

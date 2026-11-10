@@ -15,9 +15,14 @@ and this project adheres to Semantic Versioning (pre-1.0).
 - A `Makefile` at the repository root that delegates to `chameleon/Makefile` and `cargo` (`make help` lists the targets).
 
 ### Changed
+- `chameleon init` never overwrites existing project files: it writes `CHAMELEON.md` instead of replacing `README.md`, preserves existing Compose files, appends an environment block only when `.env.example` has no `DATABASE_URL`, and creates the example schema only when no `.cham` file exists.
 - `make tag` moved to the root (`scripts/tag-release.sh`). It now refuses to tag unless the branch is `main` and equal to `origin/main`, and the CHANGELOG and RELEASE.md already describe the version; the version can be passed as `make tag VERSION=X.Y.Z`; output messages are in English; the release commit no longer carries a `Co-authored-by` trailer.
 - `chameleon init` no longer writes `features.rollback_enabled`, `features.audit_logging`, `features.backup_on_migrate` or `safety.backup_before_apply`. None of them had any behavior behind it. Files that still set one of them to `true` keep loading, and every command prints one warning per key saying it is not implemented and has no effect.
 - `migrate --apply` always prints that ChameleonDB creates no backup (before, it printed it only when `backup_on_migrate` was set).
+
+### Removed
+- **Breaking:** removed the `chameleon dashboard` and `chameleon dashboard serve` commands. The dashboard's database write endpoints lacked session authentication and a Host check; a replacement requires a separate design.
+
 ### Fixed
 - The generated example schema gives UUID primary keys a default value, and generated README text now documents PostgreSQL as the supported database.
 - `Include` on a belongs-to relation (`author: User`) failed with a missing-foreign-key error. It now loads the referenced rows, once each, and skips NULL keys. A filter through a belongs-to relation (`author.name`) now joins on the local key.

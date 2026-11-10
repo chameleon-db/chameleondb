@@ -206,7 +206,7 @@ Then `go get github.com/chameleon-db/chameleondb/chameleon@latest`. If the libra
 | Migrations | `migrate` (`--dry-run`, `--apply`), `verify` |
 | History and audit | `journal schema`, `journal migrations`, `journal last`, `journal errors` |
 | Configuration | `config get`, `config set`, `config auth set-password` |
-| Development tools | `query`, `playground-sql`, `dashboard` |
+| Development tools | `query`, `playground-sql` |
 
 See the [CLI reference](docs/cli-reference.md) for the current state and proposed changes of each command.
 

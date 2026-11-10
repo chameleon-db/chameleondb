@@ -2,6 +2,7 @@ package initwizard
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -107,7 +108,12 @@ func Resolve(p *Prompter, fl Flags, env Env) (Result, error) {
 		}
 	}
 
-	if fromMenu && !fl.NoExample {
+	// The example schema declares User and Post; next to existing schemas it
+	// would duplicate entities, so it is only offered in an empty schemas/.
+	if res.CreateExample && HasSchemaFiles(filepath.Join(env.Dir, "schemas")) {
+		res.CreateExample = false
+		res.Notes = append(res.Notes, "schemas/ already has .cham files: the example schema was not created.")
+	} else if fromMenu && !fl.NoExample {
 		res.CreateExample = p.Confirm("Create schemas/example.cham?", true)
 	}
 

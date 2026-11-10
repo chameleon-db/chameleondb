@@ -1,10 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"context"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -162,7 +158,7 @@ func TestInitCommandCreatesProject(t *testing.T) {
 		filepath.Join(project, ".chameleon.yml"),
 		filepath.Join(project, ".chameleon"),
 		filepath.Join(project, "schemas", "example.cham"),
-		filepath.Join(project, "README.md"),
+		filepath.Join(project, "CHAMELEON.md"),
 	} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected init output %s: %v", path, err)
@@ -445,156 +441,6 @@ func TestCheckCommandRunEBranches(t *testing.T) {
 	}
 }
 
-func TestDashboardDisconnectedHandlers(t *testing.T) {
-	srv := newDashboardTestServer(t, true)
-	tests := []struct {
-		name string
-		call func(http.ResponseWriter, *http.Request)
-	}{
-		{"entities", srv.handleListEntities},
-		{"records", srv.handleListRecords},
-		{"insert", srv.handleInsertRecord},
-		{"update", srv.handleUpdateRecord},
-		{"delete", srv.handleDeleteRecord},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/entities/User/records", nil)
-			rec := httptest.NewRecorder()
-			tt.call(rec, req)
-			want := http.StatusServiceUnavailable
-			if tt.name == "entities" {
-				want = http.StatusOK
-			}
-			if rec.Code != want {
-				t.Fatalf("got status %d, want %d", rec.Code, want)
-			}
-		})
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/entities", nil)
-	rec := httptest.NewRecorder()
-	srv.handleListEntities(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("list entities status = %d", rec.Code)
-	}
-	if !strings.Contains(rec.Body.String(), `"entities"`) {
-		t.Fatalf("list entities response: %s", rec.Body.String())
-	}
-
-	for _, call := range []func(http.ResponseWriter, *http.Request){srv.handleInsertRecord, srv.handleUpdateRecord, srv.handleDeleteRecord} {
-		rec := httptest.NewRecorder()
-		call(rec, httptest.NewRequest(http.MethodPost, "/api/v1/entities/Missing/records", bytes.NewBufferString(`{}`)))
-		if rec.Code != http.StatusServiceUnavailable {
-			t.Fatalf("disconnected mutation status = %d", rec.Code)
-		}
-	}
-}
-
-func TestDashboardMigrationsAndJournalWithVault(t *testing.T) {
-	srv := newDashboardTestServer(t, false)
-	if err := srv.v.Initialize(); err != nil {
-		t.Fatal(err)
-	}
-	rec := httptest.NewRecorder()
-	srv.handleMigrationsStatus(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"initialized":true`) {
-		t.Fatalf("migration status response: %d %s", rec.Code, rec.Body.String())
-	}
-	rec = httptest.NewRecorder()
-	srv.handleMigrations(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("migrations status = %d", rec.Code)
-	}
-
-	logger, err := journal.NewLogger(filepath.Join(srv.workDir, ".chameleon", "journal"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := logger.Log("test", "success", map[string]interface{}{"ok": true}, nil); err != nil {
-		t.Fatal(err)
-	}
-	srv.jLogger = logger
-	rec = httptest.NewRecorder()
-	srv.handleJournal(rec, httptest.NewRequest(http.MethodGet, "/?limit=1", nil))
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"entries"`) {
-		t.Fatalf("journal response: %d %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestDashboardAdditionalErrorBranches(t *testing.T) {
-	srv := newDashboardTestServer(t, true)
-	rec := httptest.NewRecorder()
-	srv.handleListEntities(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("list entities status = %d", rec.Code)
-	}
-	srv.jLogger = nil
-	rec = httptest.NewRecorder()
-	srv.handleJournal(rec, httptest.NewRequest(http.MethodGet, "/?limit=0", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("journal status = %d", rec.Code)
-	}
-}
-
-func TestDashboardConnectedFailureBranches(t *testing.T) {
-	srv := newDashboardTestServer(t, true)
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-	if err := srv.eng.Connect(ctx, engine.ConnectorConfig{
-		Host: "127.0.0.1", Port: 1, Database: "missing", User: "missing",
-		MaxConns: 1, MinConns: 0,
-	}); err != nil {
-		t.Fatalf("connect pool: %v", err)
-	}
-	t.Cleanup(srv.eng.Close)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/entities/User/records?page=0&page_size=501&sort=id", nil).WithContext(ctx)
-	rec := httptest.NewRecorder()
-	srv.routes().ServeHTTP(rec, req)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("records failure status = %d", rec.Code)
-	}
-	rec = httptest.NewRecorder()
-	srv.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/entities", nil).WithContext(ctx))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("connected entities status = %d", rec.Code)
-	}
-	if dbName, dbVersion := srv.queryDBInfo(ctx); dbName != "" || dbVersion != "" {
-		t.Fatalf("queryDBInfo should return empty values on query failure: %q %q", dbName, dbVersion)
-	}
-
-	for _, tt := range []struct {
-		name   string
-		call   func(http.ResponseWriter, *http.Request)
-		method string
-		body   string
-	}{
-		{"insert", srv.handleInsertRecord, http.MethodPost, `{}`},
-		{"update", srv.handleUpdateRecord, http.MethodPatch, `{}`},
-		{"delete", srv.handleDeleteRecord, http.MethodDelete, ``},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			path := "/api/v1/entities/User/records/1"
-			if tt.name == "insert" {
-				path = "/api/v1/entities/User/records"
-			}
-			req := httptest.NewRequest(tt.method, path, bytes.NewBufferString(tt.body)).WithContext(ctx)
-			rec := httptest.NewRecorder()
-			srv.routes().ServeHTTP(rec, req)
-			if rec.Code != http.StatusInternalServerError {
-				t.Fatalf("%s failure status = %d", tt.name, rec.Code)
-			}
-		})
-	}
-
-	rec = httptest.NewRecorder()
-	srv.handleDBStatus(rec, httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("db status = %d", rec.Code)
-	}
-}
-
 func TestCheckOutputHelpers(t *testing.T) {
 	snippet := "entity User {"
 	raw := `{"valid":false,"errors":[{"message":"bad","line":3,"column":2,"snippet":"` + snippet + `"}]}`
@@ -629,16 +475,5 @@ func TestJournalJSONAndTableOptionalFields(t *testing.T) {
 	})
 	if !strings.Contains(out, "test") || !strings.Contains(out, `"action": "test"`) {
 		t.Fatalf("journal output: %s", out)
-	}
-}
-
-func TestDashboardSchemaMissingBranches(t *testing.T) {
-	srv := newDashboardTestServer(t, false)
-	for _, call := range []func(http.ResponseWriter, *http.Request){srv.handleListEntities, srv.handleSchemaERD} {
-		rec := httptest.NewRecorder()
-		call(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-		if rec.Code != http.StatusServiceUnavailable {
-			t.Fatalf("schema missing status = %d", rec.Code)
-		}
 	}
 }

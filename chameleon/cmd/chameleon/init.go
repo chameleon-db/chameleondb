@@ -26,13 +26,26 @@ var initCmd = &cobra.Command{
 	Short: "Initialize a new ChameleonDB project",
 	Long: `Create a new ChameleonDB project with schema and configuration.
 
-This will create:
+Always creates:
   .chameleon.yml        Main configuration file
   .chameleon/           Admin directory (config, state, journal, backups)
-  schemas/              Directory for schema files
-  README.md             Getting started guide
+  schemas/              Schema files; example.cham only if schemas/ has none
+  CHAMELEON.md          Getting started guide
+
+When asked for (a question with a terminal, or a flag):
+  docker-compose.yml    PostgreSQL 16 for local development
+  .env.example          DATABASE_URL with a placeholder password
+
+init never overwrites a file it did not create. README.md is never touched.
+An existing .env.example only gets a block starting with "# chameleon env"
+appended, and only if it has no DATABASE_URL. A file that already exists is
+skipped and the output says so.
 
 If no name is provided, initializes in current directory.`,
+	Example: `  chameleon init myproject
+  chameleon init --detect-db
+  chameleon init --db-url ******localhost:5432/app --no-example
+  chameleon init --compose --no-input`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var workDir string
@@ -111,13 +124,17 @@ If no name is provided, initializes in current directory.`,
 		}
 
 		// Create example schema
-		if choices.CreateExample {
+		if choices.CreateExample && !initwizard.HasSchemaFiles(schemasDir) {
 			schemaPath := filepath.Join(schemasDir, "example.cham")
-			schemaContent := exampleSchema()
-			if err := os.WriteFile(schemaPath, []byte(schemaContent), 0644); err != nil {
+			created, err := initwizard.WriteFileIfAbsent(schemaPath, []byte(exampleSchema()), 0644)
+			if err != nil {
 				return fmt.Errorf("failed to create example schema: %w", err)
 			}
-			printSuccess("Created schemas/example.cham")
+			if created {
+				printSuccess("Created schemas/example.cham")
+			}
+		} else if choices.CreateExample {
+			printWarning("schemas/ already contains a .cham file; example.cham was not created")
 		}
 
 		if choices.WriteCompose {
@@ -143,24 +160,35 @@ If no name is provided, initializes in current directory.`,
 			}
 		}
 		if choices.URL != "" {
-			if created, err := initwizard.WriteEnvExample(workDir, choices.URL); err != nil {
+			result, err := initwizard.WriteEnvExample(workDir, choices.URL)
+			if err != nil {
 				return err
-			} else if created {
+			}
+			switch result {
+			case initwizard.EnvCreated:
 				printSuccess("Created .env.example (placeholder password)")
+			case initwizard.EnvAppended:
+				printSuccess("Added a \"# chameleon env\" block to the end of .env.example (placeholder password)")
+			case initwizard.EnvUnchanged:
+				printInfo(".env.example already has a DATABASE_URL; it was not changed")
 			}
 		}
 
-		// Create README
-		printInfo("Creating README.md...")
-		readmePath := filepath.Join(workDir, "README.md")
-		projectName := filepath.Base(workDir)
-		readmeContent := exampleReadme(projectName)
-		if err := os.WriteFile(readmePath, []byte(readmeContent), 0644); err != nil {
-			return fmt.Errorf("failed to create README.md: %w", err)
+		// Create CHAMELEON.md without touching an existing guide.
+		guidePath := filepath.Join(workDir, "CHAMELEON.md")
+		guide := exampleReadme(filepath.Base(workDir))
+		created, err := initwizard.WriteFileIfAbsent(guidePath, []byte(guide), 0644)
+		if err != nil {
+			return fmt.Errorf("failed to create CHAMELEON.md: %w", err)
 		}
-		printSuccess("Created README.md")
+		if created {
+			printSuccess("Created CHAMELEON.md")
+		} else {
+			printWarning("CHAMELEON.md already exists; it was not changed")
+		}
 
 		// Print status
+		projectName := filepath.Base(workDir)
 		fmt.Println()
 		printSuccess("Project initialized successfully!")
 		fmt.Println()
@@ -175,7 +203,7 @@ If no name is provided, initializes in current directory.`,
 		if choices.CreateExample {
 			fmt.Println("    └── example.cham    Example schema")
 		}
-		fmt.Println("  README.md             Getting started guide")
+		fmt.Println("  CHAMELEON.md          Getting started guide")
 		fmt.Println()
 
 		fmt.Println("Next steps:")
@@ -252,7 +280,7 @@ entity Comment {
 func exampleReadme(projectName string) string {
 	return `# ` + projectName + `
 
-ChameleonDB project initialized with ` + "`chameleon init`" + `.
+ChameleonDB project initialized with ` + "`chameleon init`" + `. This file is a quick guide; your own README.md is not touched.
 
 ## Quick Start
 
@@ -289,10 +317,10 @@ chameleon migrate --apply
 │   ├── config.yml          Source config
 │   ├── state/              Current DB state
 │   ├── journal/            Audit logs
-│   └── backups/            Migration backups
+│   └── backups/            Reserved: ChameleonDB does not create backups yet
 ├── schemas/                Schema files
 │   └── example.cham        Example schema
-└── README.md               This file
+└── CHAMELEON.md            This file
 ` + "```" + `
 
 ## Configuration
@@ -300,8 +328,9 @@ chameleon migrate --apply
 Edit ` + "`.chameleon.yml`" + ` to:
 - Review the database connection (PostgreSQL)
 - Set connection string or use ` + "`${DATABASE_URL}`" + ` env var
-- Configure features (auto_migration, dry_run_default)
-- Set safety options (validation, confirmation)
+- Set the schema paths (` + "`schema.paths`" + `)
+
+Keys marked "Planned, not implemented" have no effect yet.
 
 ## Schema
 
@@ -332,8 +361,17 @@ Migrations are tracked in ` + "`.chameleon/state/migrations/manifest.json`" + `.
 Each migration:
 - Has a unique version (timestamp-based)
 - Includes schema hash for integrity
-- Supports rollback (planned v0.2)
-- Is backed up before applying
+- Only creates what is missing; it never alters existing tables
+
+ChameleonDB does not create backups and has no rollback yet (both are planned).
+Take your own backup (` + "`pg_dump`" + `) before applying.
+
+## Mode
+
+The first ` + "`chameleon migrate --apply`" + ` leaves the project in readonly mode, which
+guards against accidental schema changes (it is not access control). To change
+the schema later: ` + "`chameleon config auth set-password`" + `, then
+` + "`chameleon config set mode=standard`" + `.
 
 View history:
 

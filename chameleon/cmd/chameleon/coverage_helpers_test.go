@@ -1,9 +1,6 @@
 package main
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,47 +63,6 @@ func TestConfigPasswordHelpersUseEnvironment(t *testing.T) {
 
 	if got := canonicalParanoidMode(" ADMIN "); got != "privileged" {
 		t.Fatalf("canonicalParanoidMode() = %q, want privileged", got)
-	}
-}
-
-func TestDashboardHelpersAndHTTPOutput(t *testing.T) {
-	eng := engine.NewEngineWithoutSchema()
-	if _, err := eng.LoadSchemaFromString(`
-entity User {
-  id: uuid primary,
-  displayName: string,
-}`); err != nil {
-		t.Fatal(err)
-	}
-	schema := eng.GetSchema()
-	entity := dashboardFindEntity(schema, "User")
-	if entity == nil || dashboardFindEntity(schema, "Missing") != nil {
-		t.Fatal("unexpected dashboard entity lookup result")
-	}
-	if got := dashboardFindPK(entity); got != "id" {
-		t.Fatalf("dashboardFindPK() = %q, want id", got)
-	}
-	if got := dashboardFindPK(&engine.Entity{Fields: map[string]*engine.Field{
-		"name": {Name: "name"},
-	}}); got != "" {
-		t.Fatalf("dashboardFindPK() without primary key = %q, want empty", got)
-	}
-
-	if dashboardIntParam("", 7) != 7 || !isDashboardLocalOrigin("http://127.0.0.1") {
-		t.Fatal("dashboard helper did not handle default/local values")
-	}
-
-	rec := httptest.NewRecorder()
-	dashboardError(rec, http.StatusBadRequest, "bad_request", "invalid input")
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("dashboardError() status = %d", rec.Code)
-	}
-	var body map[string]interface{}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body["ok"] != false {
-		t.Fatalf("dashboardError() body = %#v", body)
 	}
 }
 

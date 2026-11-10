@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ComposeFileName is the file the wizard writes.
@@ -47,28 +48,79 @@ func WriteComposeFile(dir string) (created bool, err error) {
 	return true, nil
 }
 
-// EnvExample returns the .env.example content for rawURL, with the password
-// replaced by a placeholder. A real password never reaches a file.
+// EnvBlockMarker opens the block that `init` adds to .env.example.
+const EnvBlockMarker = "# chameleon env"
+
+// EnvExample returns the block for rawURL, with the password replaced by a
+// placeholder. A real password never reaches a file.
 func EnvExample(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.User == nil {
-		return "DATABASE_URL=" + rawURL + "\n"
+	line := rawURL
+	if u, err := url.Parse(rawURL); err == nil && u.User != nil {
+		if _, hasPassword := u.User.Password(); hasPassword {
+			u.User = url.UserPassword(u.User.Username(), "change-me")
+		}
+		line = u.String()
 	}
 
-	if _, hasPassword := u.User.Password(); hasPassword {
-		u.User = url.UserPassword(u.User.Username(), "change-me")
-	}
-	return "DATABASE_URL=" + u.String() + "\n"
+	return EnvBlockMarker + "\nDATABASE_URL=" + line + "\n"
 }
 
-// WriteEnvExample writes .env.example in dir unless it exists.
-func WriteEnvExample(dir, rawURL string) (created bool, err error) {
+// EnvResult says what WriteEnvExample did.
+type EnvResult int
+
+const (
+	// EnvCreated: .env.example did not exist and was created.
+	EnvCreated EnvResult = iota
+	// EnvAppended: the block was added at the end of an existing file.
+	EnvAppended
+	// EnvUnchanged: the file already has the block or a DATABASE_URL.
+	EnvUnchanged
+)
+
+// WriteEnvExample creates .env.example with the block, or appends the block to
+// an existing file when that file has neither the marker nor a DATABASE_URL.
+// Existing content is never changed.
+func WriteEnvExample(dir, rawURL string) (EnvResult, error) {
 	path := filepath.Join(dir, ".env.example")
-	if _, statErr := os.Stat(path); statErr == nil {
-		return false, nil
+	block := EnvExample(rawURL)
+
+	existing, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		if err := os.WriteFile(path, []byte(block), 0644); err != nil {
+			return EnvUnchanged, fmt.Errorf("failed to write .env.example: %w", err)
+		}
+		return EnvCreated, nil
 	}
-	if err := os.WriteFile(path, []byte(EnvExample(rawURL)), 0644); err != nil {
-		return false, fmt.Errorf("failed to write .env.example: %w", err)
+	if err != nil {
+		return EnvUnchanged, fmt.Errorf("failed to read .env.example: %w", err)
 	}
-	return true, nil
+
+	content := string(existing)
+	if strings.Contains(content, EnvBlockMarker) {
+		return EnvUnchanged, nil
+	}
+	if _, has := ParseDotenv(content)["DATABASE_URL"]; has {
+		return EnvUnchanged, nil
+	}
+
+	prefix := ""
+	switch {
+	case content == "":
+	case strings.HasSuffix(content, "\n\n"):
+	case strings.HasSuffix(content, "\n"):
+		prefix = "\n"
+	default:
+		prefix = "\n\n"
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return EnvUnchanged, fmt.Errorf("failed to open .env.example: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(prefix + block); err != nil {
+		return EnvUnchanged, fmt.Errorf("failed to append to .env.example: %w", err)
+	}
+	return EnvAppended, nil
 }
