@@ -66,7 +66,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version-file: chameleon/go.mod
 
       - name: Build Go CLI
         working-directory: chameleon
@@ -135,7 +135,7 @@ jobs:
   # macos-latest runners are Apple Silicon, so this archive is arm64 only.
   build-macos:
     name: Build macOS (arm64)
-    needs: validate-version (arm64)
+    needs: validate-version
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -154,7 +154,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version-file: chameleon/go.mod
 
       - name: Build Go CLI
         working-directory: chameleon
@@ -241,7 +241,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version-file: chameleon/go.mod
 
       - name: Build Go CLI
         working-directory: chameleon
