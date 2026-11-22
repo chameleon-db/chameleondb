@@ -63,6 +63,8 @@ curl -sSL https://chameleondb.dev/install | sh
 
 Prebuilt binaries: Linux (amd64, arm64) and macOS on Apple Silicon (arm64). Intel Macs have no prebuilt binary; build from source. The install script verifies the SHA-256 checksum published with each release and aborts on a mismatch.
 
+Without `sudo`, set the destinations, for example `CHAMELEON_INSTALL_DIR=$HOME/.local/bin CHAMELEON_LIB_DIR=$HOME/.local/lib`. The binary only searches `/usr/local/lib` (and `/opt/homebrew/lib` on macOS) for its library, so with another directory the script ends by printing one `export LD_LIBRARY_PATH=...` line (`DYLD_LIBRARY_PATH` on macOS) to add to your shell profile. Without it, `chameleon` fails with `error while loading shared libraries: libchameleon.so` (Linux) or `dyld: Library not loaded: libchameleon.dylib` (macOS).
+
 Build from source:
 
 ```bash

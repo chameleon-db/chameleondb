@@ -8,6 +8,11 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 ## [Unreleased]
 
+### Fixed
+- The install script no longer fails its final check when `CHAMELEON_LIB_DIR` is not `/usr/local/lib` (or `/opt/homebrew/lib` on macOS). The files were installed correctly but the binary could not find its library, so the script reported "Installation verification failed". It now retries the check with the library directory in `LD_LIBRARY_PATH` (`DYLD_LIBRARY_PATH` on macOS) and, on success, prints the `export` line to add to the shell profile and the error you will see without it. With the default directories nothing changes.
+- The install script skips `ldconfig` for a custom library directory (it does not index it, and a non-root install should not ask for `sudo`), and a failing `ldconfig` is now a warning instead of aborting the install.
+- The "Add ... to your PATH" hint printed `\$PATH` with a backslash; it now prints `$PATH` so the line can be pasted into a profile.
+
 ## [v1.2.0] - 2026-11-09
 
 First-run experience, a safer mode password, and the removal of the dashboard. **Breaking:** `chameleon dashboard` is gone; see "Removed".

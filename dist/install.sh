@@ -33,6 +33,11 @@ INSTALL_LIB_DIR="${CHAMELEON_LIB_DIR:-/usr/local/lib}"
 INSTALL_INCLUDE_DIR="${CHAMELEON_INCLUDE_DIR:-/usr/local/include}"
 INSTALL_PKGCONFIG_DIR="${CHAMELEON_PKGCONFIG_DIR:-/usr/local/lib/pkgconfig}"
 
+# Drop trailing slashes so "$HOME/lib/" and "$HOME/lib" compare equal.
+while [ "${#INSTALL_LIB_DIR}" -gt 1 ] && [ "${INSTALL_LIB_DIR%/}" != "$INSTALL_LIB_DIR" ]; do
+    INSTALL_LIB_DIR="${INSTALL_LIB_DIR%/}"
+done
+
 # Detectar OS
 OS="$(uname | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
@@ -52,17 +57,29 @@ case "$OS" in
         OS="linux"
         LIB_NAME="$LIB_NAME_LINUX"
         LIB_GLOB="libchameleon.so*"
+        LIB_PATH_VAR="LD_LIBRARY_PATH"
         ;;
     darwin) 
         OS="darwin"
         LIB_NAME="$LIB_NAME_MACOS"
         LIB_GLOB="libchameleon*.dylib*"
+        LIB_PATH_VAR="DYLD_LIBRARY_PATH"
         ;;
     *)
         printf "${RED}✗${NC} Unsupported OS: $OS\n"
         printf "   On Windows, download the archive from https://github.com/$REPO/releases\n"
         exit 1
         ;;
+esac
+
+# The binary carries an rpath only for these directories (see
+# chameleon/internal/ffi/bindings.go). A library installed anywhere else is not
+# found by the dynamic loader unless the user exports LIB_PATH_VAR.
+case "$OS:$INSTALL_LIB_DIR" in
+    linux:/usr/local/lib|darwin:/usr/local/lib|darwin:/opt/homebrew/lib)
+        CUSTOM_LIB_DIR=0 ;;
+    *)
+        CUSTOM_LIB_DIR=1 ;;
 esac
 
 # Prebuilt archives published with each release (see .github/workflows/release.yml)
@@ -296,32 +313,57 @@ fi
 printf "${GREEN}✓${NC} pkg-config file installed\n"
 
 # === UPDATE LIBRARY CACHE ===
-if command -v ldconfig >/dev/null 2>&1; then
+# Only for the standard directory: ldconfig does not index a custom one, and a
+# non-root install should not ask for sudo just for this.
+if [ "$CUSTOM_LIB_DIR" -eq 0 ] && command -v ldconfig >/dev/null 2>&1; then
     printf "${BLUE}ℹ${NC} Updating library cache\n"
     if [ -w "/etc/ld.so.cache" ]; then
-        ldconfig
+        ldconfig || printf "${YELLOW}⚠${NC} ldconfig failed; continuing\n"
     else
-        sudo ldconfig
+        sudo ldconfig || printf "${YELLOW}⚠${NC} ldconfig failed; continuing\n"
     fi
 fi
 
 # === VERIFY INSTALLATION ===
 printf "\n${BLUE}ℹ${NC} Verifying installation...\n"
 
-if ! "$INSTALL_BIN_DIR/$BIN_NAME" version >/dev/null 2>&1; then
-    printf "${RED}✗${NC} Installation verification failed\n"
-    printf "   Try: $INSTALL_BIN_DIR/$BIN_NAME version\n"
-    exit 1
+NEEDS_LIB_PATH=0
+if "$INSTALL_BIN_DIR/$BIN_NAME" version >/dev/null 2>&1; then
+    VERSION=$("$INSTALL_BIN_DIR/$BIN_NAME" version)
+else
+    # The files are installed, but the loader may not search a custom library
+    # directory. Retry with that directory in the loader path before failing.
+    LIB_ABS="$(cd "$INSTALL_LIB_DIR" 2>/dev/null && pwd)" || LIB_ABS="$INSTALL_LIB_DIR"
+    if [ "$CUSTOM_LIB_DIR" -eq 1 ] \
+        && env "$LIB_PATH_VAR=$LIB_ABS" "$INSTALL_BIN_DIR/$BIN_NAME" version >/dev/null 2>&1; then
+        VERSION=$(env "$LIB_PATH_VAR=$LIB_ABS" "$INSTALL_BIN_DIR/$BIN_NAME" version)
+        NEEDS_LIB_PATH=1
+    else
+        printf "${RED}✗${NC} Installation verification failed\n"
+        printf "   Try: $INSTALL_BIN_DIR/$BIN_NAME version\n"
+        exit 1
+    fi
 fi
-
-VERSION=$("$INSTALL_BIN_DIR/$BIN_NAME" version)
 printf "${GREEN}✓${NC} $VERSION installed successfully\n"
+
+if [ "$NEEDS_LIB_PATH" -eq 1 ]; then
+    # Printed as-is: the user pastes it into ~/.bashrc or ~/.zshrc.
+    EXPORT_LINE="export ${LIB_PATH_VAR}=\"${LIB_ABS}\${${LIB_PATH_VAR}:+:\$${LIB_PATH_VAR}}\""
+    printf "\n${YELLOW}⚠${NC} The library is in $LIB_ABS, which the loader does not search.\n"
+    printf "   chameleon will not start in a new shell until you add this line to your profile:\n"
+    printf "   %s\n" "$EXPORT_LINE"
+    case "$OS" in
+        linux)  LOADER_MSG="error while loading shared libraries: libchameleon.so: cannot open shared object file" ;;
+        darwin) LOADER_MSG="dyld: Library not loaded: libchameleon.dylib" ;;
+    esac
+    printf "   Without it you will see: $LOADER_MSG\n"
+fi
 
 # === VERIFY PATH ===
 if ! command -v chameleon >/dev/null 2>&1; then
     printf "\n${YELLOW}⚠${NC} Add $INSTALL_BIN_DIR to your PATH\n"
     printf "   Add this to ~/.bashrc or ~/.zshrc:\n"
-    printf "   export PATH=\"\\\$PATH:$INSTALL_BIN_DIR\"\n"
+    printf '   export PATH="$PATH:%s"\n' "$INSTALL_BIN_DIR"
 fi
 
 # === NEXT STEPS ===
