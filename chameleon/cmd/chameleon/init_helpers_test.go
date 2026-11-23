@@ -1,10 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/chameleon-db/chameleondb/chameleon/internal/cliout"
 )
 
 func TestExampleSchemaContainsCoreEntities(t *testing.T) {
@@ -102,5 +105,57 @@ func TestInitNeverOverwritesExistingFiles(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(env), "OTHER=1\n") {
 		t.Errorf(".env.example lost its original content: %q", env)
+	}
+}
+
+func TestGuideHasSectionForCodingAgents(t *testing.T) {
+	guide := exampleReadme("myproj")
+	i := strings.Index(guide, "## For coding agents")
+	if i < 0 {
+		t.Fatal("CHAMELEON.md needs a section for coding agents")
+	}
+	section := guide[i:]
+	if j := strings.Index(section[3:], "\n## "); j >= 0 {
+		section = section[:j+3]
+	}
+
+	// It must say the things an agent gets wrong without them.
+	for _, want := range []string{"Ask a human before", "migrate --apply", "--json", "--no-input", ".chameleon/", "readonly mode", "DATABASE_URL", "no backups and no rollback"} {
+		if !strings.Contains(section, want) {
+			t.Errorf("the section must mention %q", want)
+		}
+	}
+	// It must not promise what the tool does not do (ADR-0002).
+	lower := strings.ToLower(section)
+	for _, claim := range []string{"approval workflow", "will ask", "is secure", "compliant", "backed up before"} {
+		if strings.Contains(lower, claim) {
+			t.Errorf("the section must not claim %q", claim)
+		}
+	}
+}
+
+// Every command the section names with --json must exist and support it, and
+// every exit code in the section must be one the CLI defines.
+func TestAgentsSectionMatchesTheCLI(t *testing.T) {
+	section := agentsSection()
+	for _, name := range []string{"validate", "status", "verify", "migrate", "introspect"} {
+		if !strings.Contains(section, "`"+name+"`") {
+			t.Errorf("section does not list %q", name)
+		}
+		cmd, _, err := rootCmd.Find([]string{name})
+		if err != nil || cmd == nil || cmd.Name() != name {
+			t.Fatalf("command %q does not exist", name)
+		}
+		if cmd.Annotations[jsonAnnotation] != "true" {
+			t.Errorf("%q is listed as supporting --json but does not", name)
+		}
+	}
+	for _, e := range cliout.Table {
+		if e.Exit == 0 {
+			continue
+		}
+		if !strings.Contains(section, fmt.Sprintf("%d ", e.Exit)) {
+			t.Errorf("section does not mention exit code %d (%s)", e.Exit, e.Code)
+		}
 	}
 }
