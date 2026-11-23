@@ -3,6 +3,7 @@ package schema
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -112,6 +113,7 @@ func (m *SimpleMerger) Validate(merged string) error {
 		}
 	}
 
+	sort.Strings(duplicates)
 	if len(duplicates) > 0 {
 		return fmt.Errorf("duplicate entities found: %s\n\nEntity names must be unique across all schema files. "+
 			"Define each entity only once.", strings.Join(duplicates, ", "))

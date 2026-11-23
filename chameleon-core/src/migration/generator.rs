@@ -47,15 +47,9 @@ fn generate_create_table(entity: &Entity, schema: &Schema) -> Result<String, Mig
     let mut constraints = Vec::new();
 
     // Columns (skip relation-only fields, keep actual data fields).
-    // `fields` is a HashMap, so sort for deterministic output:
-    // primary key first, then alphabetical by name.
-    let mut sorted_fields: Vec<_> = entity.fields.values().collect();
-    sorted_fields.sort_by(|a, b| {
-        b.primary_key
-            .cmp(&a.primary_key)
-            .then_with(|| a.name.cmp(&b.name))
-    });
-    for field in sorted_fields {
+    // `fields` is a HashMap: use the documented order (primary key first,
+    // then alphabetical by name).
+    for field in entity.sorted_fields() {
         let pg_type = to_postgres_type(&field.field_type);
 
         let mut col = format!("    {} {}", field.name, pg_type);
@@ -89,7 +83,7 @@ fn generate_create_table(entity: &Entity, schema: &Schema) -> Result<String, Mig
         if other_entity.name == entity.name {
             continue;
         }
-        for (_, relation) in &other_entity.relations {
+        for relation in other_entity.sorted_relations() {
             if relation.target_entity == entity.name && relation.kind == RelationKind::HasMany {
                 // The FK is in other_entity, not here — skip
             }
@@ -102,7 +96,7 @@ fn generate_create_table(entity: &Entity, schema: &Schema) -> Result<String, Mig
     // But actually, FKs are defined by fields like user_id in Order
     // We detect them by matching HasMany relations
     for other_entity in &schema.entities {
-        for (_, relation) in &other_entity.relations {
+        for relation in other_entity.sorted_relations() {
             if relation.kind == RelationKind::HasMany
                 && relation.target_entity == entity.name
             {
@@ -174,7 +168,7 @@ fn topo_sort(
         if other_entity.name == current {
             continue;
         }
-        for (_, relation) in &other_entity.relations {
+        for relation in other_entity.sorted_relations() {
             if relation.kind == RelationKind::HasMany && relation.target_entity == current {
                 // other_entity has HasMany to current, so other_entity must be created first
                 topo_sort(schema, &other_entity.name, order, visited, in_stack)?;

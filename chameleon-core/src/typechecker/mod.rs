@@ -48,7 +48,9 @@ pub fn type_check(schema: &Schema) -> TypeCheckResult {
     }
 
     // Detectar duplicados
-    for (entity_name, indices) in entity_names.iter() {
+    let mut duplicated: Vec<(&String, &Vec<usize>)> = entity_names.iter().collect();
+    duplicated.sort_by(|a, b| a.1[0].cmp(&b.1[0]).then_with(|| a.0.cmp(b.0)));
+    for (entity_name, indices) in duplicated {
         if indices.len() > 1 {
             // Hay duplicados
             for (pos, &idx) in indices.iter().enumerate() {
@@ -67,14 +69,16 @@ pub fn type_check(schema: &Schema) -> TypeCheckResult {
     for entity in &schema.entities {
         let mut field_names: HashMap<String, Vec<usize>> = HashMap::new();
         
-        for (i, field) in entity.fields.values().enumerate() {
+        for (i, field) in entity.sorted_fields().into_iter().enumerate() {
             field_names
                 .entry(field.name.clone())
                 .or_insert_with(Vec::new)
                 .push(i);
         }
 
-        for (field_name, indices) in field_names.iter() {
+        let mut named: Vec<(&String, &Vec<usize>)> = field_names.iter().collect();
+        named.sort_by(|a, b| a.0.cmp(b.0));
+        for (field_name, indices) in named {
             if indices.len() > 1 {
                 errors.push(TypeCheckError::DuplicateField {
                     entity: entity.name.clone(),

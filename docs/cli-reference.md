@@ -105,3 +105,14 @@ The exit code is the same with and without `--json`.
 | `introspect` | `output`, `tables`, `duration_ms` |
 
 Without a database you can already use `validate`, `migrate --dry-run`, `status` and `verify`.
+
+## Output order
+
+The same schema gives the same output, byte for byte, on every run. Where the order is not the order of the entities in your files, it is:
+
+- Columns (`CREATE TABLE`, `SELECT` lists, includes): the primary key first, then alphabetical by name.
+- Relations and constraints: alphabetical by name.
+- Entities: the order of the schema files.
+- Errors and listings: by entity order, then alphabetical.
+
+The tests in `chameleon-core/tests/determinism.rs` parse a schema 100 times and compare the output.

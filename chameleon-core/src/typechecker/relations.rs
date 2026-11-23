@@ -6,7 +6,7 @@ pub fn check_relations(schema: &Schema) -> Vec<TypeCheckError> {
     let mut errors = Vec::new();
 
     for entity in &schema.entities {
-        for (_, relation) in &entity.relations {
+        for relation in entity.sorted_relations() {
             // 1. Target entity exists
             if schema.get_entity(&relation.target_entity).is_none() {
                 errors.push(TypeCheckError::UnknownRelationTarget {
@@ -35,7 +35,7 @@ pub fn check_relations(schema: &Schema) -> Vec<TypeCheckError> {
             if relation.kind == RelationKind::HasMany {
                 if let Some(fk) = &relation.foreign_key {
                     let target_entity = schema.get_entity(&relation.target_entity).unwrap();
-                    let pk = entity.fields.values().find(|f| f.primary_key);
+                    let pk = entity.sorted_fields().into_iter().find(|f| f.primary_key);
 
                     if let Some(pk) = pk {
                         if pk.name != "id" {
@@ -84,7 +84,7 @@ pub fn check_relations(schema: &Schema) -> Vec<TypeCheckError> {
                         "foreign key is ambiguous ({}); name the field '{}_id'",
                         candidates.join(", "), relation.name
                     )),
-                    Ok(fk) => match (entity.fields.get(&fk), target_entity.fields.values().find(|f| f.primary_key)) {
+                    Ok(fk) => match (entity.fields.get(&fk), target_entity.sorted_fields().into_iter().find(|f| f.primary_key)) {
                         (None, _) => invalid(format!("'{}' has no field '{}'", entity.name, fk)),
                         (Some(_), None) => {}
                         (Some(fk_field), Some(pk)) => {
@@ -144,7 +144,7 @@ fn dfs(
     in_stack.push(current.to_string());
     
     if let Some(entity) = schema.get_entity(current) {
-        for (_, relation) in &entity.relations {
+        for relation in entity.sorted_relations() {
             // BelongsTo is just the inverse side of a relation, skip it
             if relation.kind == RelationKind::BelongsTo {
                 continue;

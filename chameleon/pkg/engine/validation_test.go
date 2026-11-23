@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -468,5 +469,33 @@ func TestValidateDeleteInput_ForceDeleteAllStillAllowsNoFilters(t *testing.T) {
 
 	if err := validator.ValidateDeleteInput("User", map[string]interface{}{}, true); err != nil {
 		t.Errorf("Expected no error, got: %v", err)
+	}
+}
+
+// The field reported when several are missing must not depend on map order.
+func TestValidateInsertInput_FirstMissingFieldIsDeterministic(t *testing.T) {
+	validator := NewValidator(getTestSchema(), DefaultValidatorConfig())
+	input := map[string]interface{}{"id": uuid.New().String()} // email and name are missing
+
+	for i := 0; i < 200; i++ {
+		err := validator.ValidateInsertInput("User", input)
+		notNullErr, ok := err.(*NotNullError)
+		if !ok {
+			t.Fatalf("expected NotNullError, got %T", err)
+		}
+		if notNullErr.Field != "email" {
+			t.Fatalf("run %d: reported %q, want the alphabetically first missing field %q", i, notNullErr.Field, "email")
+		}
+	}
+}
+
+func TestAvailableFieldsAreSorted(t *testing.T) {
+	validator := NewValidator(getTestSchema(), DefaultValidatorConfig())
+	want := []string{"age", "email", "id", "name"}
+	for i := 0; i < 100; i++ {
+		got := validator.getAvailableFields(getTestSchema().Entities[0])
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("run %d: %v, want %v", i, got, want)
+		}
 	}
 }
