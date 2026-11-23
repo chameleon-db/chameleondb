@@ -8,6 +8,13 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 ## [Unreleased]
 
+### Added
+- `--json` for `validate`, `status`, `verify`, `migrate` and `introspect`: stdout holds one JSON document (`schema_version`, `command`, `ok`, `data`, `errors`) and the human output goes to stderr. Errors carry a stable `code` and, for schema errors, `file`, `line`, `column` and `snippet`. `--json` never asks questions. See "JSON output and exit codes" in `docs/cli-reference.md`.
+- Stable exit codes, the same with and without `--json`: 2 usage, 3 invalid schema, 4 blocked by the mode, 5 integrity failure, 6 database unreachable, 7 not initialized, 8 migration rejected (1 for anything else). Before, every failure exited 1.
+
+### Changed
+- Errors are printed once, to stderr, with passwords in connection strings redacted.
+
 ### Fixed
 - The install script no longer fails its final check when `CHAMELEON_LIB_DIR` is not `/usr/local/lib` (or `/opt/homebrew/lib` on macOS). The files were installed correctly but the binary could not find its library, so the script reported "Installation verification failed". It now retries the check with the library directory in `LD_LIBRARY_PATH` (`DYLD_LIBRARY_PATH` on macOS) and, on success, prints the `export` line to add to the shell profile and the error you will see without it. With the default directories nothing changes.
 - The install script skips `ldconfig` for a custom library directory (it does not index it, and a non-root install should not ask for `sudo`), and a failing `ldconfig` is now a warning instead of aborting the install.

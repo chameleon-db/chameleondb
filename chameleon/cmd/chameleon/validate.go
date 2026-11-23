@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/chameleon-db/chameleondb/chameleon/internal/cliout"
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
 	"github.com/spf13/cobra"
 )
@@ -43,30 +44,46 @@ Examples:
 				Valid  bool `json:"valid"`
 				Errors []struct {
 					Message    string  `json:"message"`
+					Line       *int    `json:"line"`
+					Column     *int    `json:"column"`
 					Snippet    *string `json:"snippet"`
 					Suggestion *string `json:"suggestion"`
 				} `json:"errors"`
 			}
 
+			var details []cliout.Detail
 			if jsonErr := json.Unmarshal([]byte(rawErr), &validationResult); jsonErr == nil {
 				for _, errItem := range validationResult.Errors {
 					fmt.Println(errItem.Message)
+					d := cliout.Detail{Code: cliout.CodeSchemaInvalid, Message: errItem.Message, File: schemaLabel}
+					if errItem.Line != nil {
+						d.Line = *errItem.Line
+					}
+					if errItem.Column != nil {
+						d.Column = *errItem.Column
+					}
 					if errItem.Snippet != nil {
 						fmt.Println(*errItem.Snippet)
+						d.Snippet = *errItem.Snippet
 					}
 					if errItem.Suggestion != nil {
 						fmt.Println("Help: " + *errItem.Suggestion)
+						d.Hint = *errItem.Suggestion
 					}
+					details = append(details, d)
 				}
 			} else {
 				// Fallback: try to format as old error format
 				formatted := engine.FormatError(rawErr)
 				fmt.Println(formatted)
+				details = append(details, cliout.Detail{Code: cliout.CodeSchemaInvalid, Message: formatted, File: schemaLabel})
 			}
 
-			return fmt.Errorf("schema validation failed")
+			setResult(map[string]any{"valid": false, "source": schemaLabel})
+			return cliout.New(cliout.CodeSchemaInvalid, "schema validation failed").WithDetails(details...)
 		}
 
+		setResult(map[string]any{"valid": true, "source": schemaLabel})
 		printSuccess("Schema is valid")
 		if verbose {
 			fmt.Println("\nValidation checks passed:")
@@ -81,5 +98,6 @@ Examples:
 }
 
 func init() {
+	supportJSON(validateCmd)
 	rootCmd.AddCommand(validateCmd)
 }

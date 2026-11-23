@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/chameleon-db/chameleondb/chameleon/internal/admin"
+	"github.com/chameleon-db/chameleondb/chameleon/internal/cliout"
 	"github.com/chameleon-db/chameleondb/chameleon/internal/schema"
 )
 
@@ -40,7 +41,7 @@ func readValidateInput(args []string) (label string, content string, err error) 
 	if len(args) > 0 {
 		label = args[0]
 		if _, statErr := os.Stat(label); os.IsNotExist(statErr) {
-			return "", "", fmt.Errorf("schema file not found: %s", label)
+			return "", "", cliout.Errorf(cliout.CodeUsage, "schema file not found: %s", label)
 		}
 	} else if _, statErr := os.Stat(legacySchemaFile); statErr == nil {
 		label = legacySchemaFile
@@ -61,7 +62,8 @@ func readValidateInput(args []string) (label string, content string, err error) 
 
 	merged, err := loadProjectSchema(workDir)
 	if err != nil {
-		return "", "", fmt.Errorf("no schema file given, no %s here and no project schemas found: %w", legacySchemaFile, err)
+		return "", "", cliout.Errorf(cliout.CodeNotInitialized, "no schema file given, no %s here and no project schemas found: %w", legacySchemaFile, err).
+			WithHint("run 'chameleon init' in your project, or pass a schema file")
 	}
 	return "project schemas", merged, nil
 }

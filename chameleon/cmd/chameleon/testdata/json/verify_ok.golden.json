@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "command": "chameleon verify",
+  "ok": true,
+  "data": {
+    "valid": true,
+    "versions": [],
+    "issues": [],
+    "schema_file": {
+      "exists": true
+    }
+  },
+  "errors": []
+}

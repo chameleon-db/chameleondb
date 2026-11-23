@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/chameleon-db/chameleondb/chameleon/internal/admin"
+	"github.com/chameleon-db/chameleondb/chameleon/internal/cliout"
+	"github.com/chameleon-db/chameleondb/chameleon/internal/config"
 	"github.com/chameleon-db/chameleondb/chameleon/internal/schema"
 	"github.com/chameleon-db/chameleondb/chameleon/internal/state"
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
@@ -40,16 +43,27 @@ Use --dry-run to preview without applying.
 Examples:
   chameleon migrate              # Check for pending migrations
   chameleon migrate --dry-run    # Preview SQL without applying
-  chameleon migrate --apply      # Apply pending migrations`,
+  chameleon migrate --apply      # Apply pending migrations
+
+With --json it prints one document: the plan (SQL, version, changes) and, with
+--apply, the result. It never asks questions in that mode.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		report := &migrateReport{Mode: "check"}
+		if applyMigration {
+			report.Mode = "apply"
+		} else if dryRun {
+			report.Mode = "dry_run"
+		}
+		setResult(report)
+
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		// Get working directory
 		workDir, err := os.Getwd()
 		if err != nil {
-			return fmt.Errorf("failed to get working directory: %w", err)
+			return cliout.Errorf(cliout.CodeInternal, "failed to get working directory: %w", err)
 		}
 
 		// Initialize admin factory
@@ -60,20 +74,24 @@ Examples:
 		configLoader := factory.CreateConfigLoader()
 		cfg, err := configLoader.Load()
 		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+			if errors.Is(err, config.ErrNotFound) {
+				return cliout.Errorf(cliout.CodeNotInitialized, "failed to load config: %w", err).
+					WithHint("run 'chameleon init' first")
+			}
+			return cliout.Errorf(cliout.CodeInternal, "failed to load config: %w", err)
 		}
 		printSuccess("Configuration loaded from .chameleon.yml")
 
 		// Create journal logger
 		journalLogger, err := factory.CreateJournalLogger()
 		if err != nil {
-			return fmt.Errorf("failed to initialize journal: %w", err)
+			return cliout.Errorf(cliout.CodeInternal, "failed to initialize journal: %w", err)
 		}
 
 		// Create state tracker
 		stateTracker, err := factory.CreateStateTracker()
 		if err != nil {
-			return fmt.Errorf("failed to initialize state tracker: %w", err)
+			return cliout.Errorf(cliout.CodeInternal, "failed to initialize state tracker: %w", err)
 		}
 
 		// SCHEMA VAULT INTEGRATION
@@ -87,7 +105,7 @@ Examples:
 			printInfo("Initializing Schema Vault...")
 			if err := v.Initialize(); err != nil {
 				journalLogger.LogError("migrate", err, map[string]interface{}{"action": "vault_init"})
-				return fmt.Errorf("failed to initialize vault: %w", err)
+				return cliout.Errorf(cliout.CodeInternal, "failed to initialize vault: %w", err)
 			}
 			createdVault = true
 			printSuccess("Created .chameleon/vault/")
@@ -98,13 +116,14 @@ Examples:
 		vaultResult, err := v.VerifyIntegrity()
 		if err != nil {
 			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "verify_integrity"})
-			return fmt.Errorf("integrity verification failed: %w", err)
+			return cliout.Errorf(cliout.CodeIntegrityFailed, "integrity verification failed: %w", err)
 		}
 
 		if !vaultResult.Valid {
 			for _, issue := range vaultResult.Issues {
 				if strings.HasPrefix(issue, "mode.json ") {
-					return fmt.Errorf("failed to read paranoid mode: %s", issue)
+					return cliout.New(cliout.CodeIntegrityFailed, "failed to read paranoid mode: "+issue).
+						WithHint("mode.json is missing or was modified; run 'chameleon verify'")
 				}
 			}
 
@@ -127,7 +146,13 @@ Examples:
 				fmt.Errorf("integrity violation: %d issues", len(vaultResult.Issues)),
 				map[string]interface{}{"action": "verify_integrity"})
 
-			return fmt.Errorf("integrity check failed")
+			details := make([]cliout.Detail, 0, len(vaultResult.Issues))
+			for _, issue := range vaultResult.Issues {
+				details = append(details, cliout.Detail{Code: cliout.CodeIntegrityFailed, Message: issue})
+			}
+			return cliout.New(cliout.CodeIntegrityFailed, "integrity check failed").
+				WithDetails(details...).
+				WithHint("run 'chameleon verify' for details")
 		}
 
 		// Log migration start
@@ -146,7 +171,7 @@ Examples:
 				mode, modeErr := v.GetParanoidMode()
 				if modeErr != nil {
 					journalLogger.LogError("migrate", modeErr, map[string]interface{}{"action": "read_mode"})
-					return fmt.Errorf("failed to read paranoid mode: %w", modeErr)
+					return cliout.Errorf(cliout.CodeIntegrityFailed, "failed to read paranoid mode: %w", modeErr)
 				}
 
 				if mode == "readonly" {
@@ -158,7 +183,8 @@ Examples:
 					fmt.Println("   3. Fix integrity issues first")
 					fmt.Println()
 					journalLogger.Log("migrate", "aborted_readonly", logDetails, nil)
-					return fmt.Errorf("readonly mode: schema locked")
+					return cliout.New(cliout.CodeModeBlocked, "readonly mode: schema locked").
+						WithHint("upgrade the mode first: chameleon config auth set-password && chameleon config set mode=standard")
 				}
 
 				printInfo("Paranoid Mode active: %s", mode)
@@ -176,7 +202,7 @@ Examples:
 		filenames, schemaContents, err := loader.LoadAll()
 		if err != nil {
 			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "load_schemas"})
-			return fmt.Errorf("failed to load schemas: %w", err)
+			return cliout.Errorf(cliout.CodeSchemaInvalid, "failed to load schemas: %w", err)
 		}
 
 		printSuccess("Found %d schema file(s): %v", len(filenames), filenames)
@@ -186,7 +212,7 @@ Examples:
 		mergedResult, err := merger.Merge(filenames, schemaContents)
 		if err != nil {
 			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "merge_schemas"})
-			return fmt.Errorf("failed to merge schemas: %w", err)
+			return cliout.Errorf(cliout.CodeSchemaInvalid, "failed to merge schemas: %w", err)
 		}
 
 		mergedSchema := mergedResult.Content
@@ -195,7 +221,7 @@ Examples:
 		// Validate merged schema
 		if err := merger.Validate(mergedSchema); err != nil {
 			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "validate_schemas"})
-			return fmt.Errorf("schema validation failed: %w", err)
+			return cliout.Errorf(cliout.CodeSchemaInvalid, "schema validation failed: %w", err)
 		}
 
 		// Parse merged schema (capture errors with source mapping)
@@ -230,7 +256,8 @@ Examples:
 				}
 			}
 
-			return fmt.Errorf("failed to parse merged schemas:\n%s", errMsg)
+			return cliout.Errorf(cliout.CodeSchemaInvalid, "failed to parse merged schemas:\n%s", errMsg).
+				WithDetails(cliout.Detail{Code: cliout.CodeSchemaInvalid, Message: err.Error()})
 		}
 
 		printSuccess("Schema loaded and validated")
@@ -242,18 +269,18 @@ Examples:
 		}
 		if err := os.MkdirAll(filepath.Dir(mergedSchemaPath), 0755); err != nil {
 			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "ensure_merged_schema_dir"})
-			return fmt.Errorf("failed to prepare merged schema directory: %w", err)
+			return cliout.Errorf(cliout.CodeInternal, "failed to prepare merged schema directory: %w", err)
 		}
 		if err := os.WriteFile(mergedSchemaPath, []byte(mergedSchema), 0644); err != nil {
 			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "save_merged_schema"})
-			return fmt.Errorf("failed to save merged schema: %w", err)
+			return cliout.Errorf(cliout.CodeInternal, "failed to save merged schema: %w", err)
 		}
 
 		// Get current state early (needed for both normal and retry paths)
 		currentState, err := stateTracker.LoadCurrent()
 		if err != nil {
 			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "load_state"})
-			return fmt.Errorf("failed to load current state: %w", err)
+			return cliout.Errorf(cliout.CodeInternal, "failed to load current state: %w", err)
 		}
 
 		// DETECT SCHEMA CHANGES (Schema Vault)
@@ -261,13 +288,13 @@ Examples:
 		changed, changesSummary, err := v.DetectChanges(mergedSchemaPath)
 		if err != nil {
 			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "detect_changes"})
-			return fmt.Errorf("failed to detect changes: %w", err)
+			return cliout.Errorf(cliout.CodeInternal, "failed to detect changes: %w", err)
 		}
 
 		lastAppliedMigration, err := stateTracker.GetLastMigration()
 		if err != nil {
 			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "get_last_migration"})
-			return fmt.Errorf("failed to get last migration: %w", err)
+			return cliout.Errorf(cliout.CodeInternal, "failed to get last migration: %w", err)
 		}
 
 		currentVaultVersion := ""
@@ -282,6 +309,8 @@ Examples:
 				printInfo("No schema changes detected")
 				fmt.Println()
 				printSuccess("Schema is up to date")
+				report.UpToDate = true
+				report.Version = currentVaultVersion
 				journalLogger.Log("migrate", "no_changes", map[string]interface{}{"action": "check"}, nil)
 				return nil
 			}
@@ -294,15 +323,19 @@ Examples:
 		}
 
 		printInfo("Schema changes detected: %s", changesSummary)
+		report.Changed = changed
+		report.PendingUnapplied = hasPendingUnappliedVersion
+		report.Summary = changesSummary
 
 		// Generate migration
 		printInfo("Generating migration SQL...")
 		migrationSQL, err := eng.GenerateMigration()
 		if err != nil {
 			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "generate"})
-			return fmt.Errorf("failed to generate migration: %w", err)
+			return cliout.Errorf(cliout.CodeInternal, "failed to generate migration: %w", err)
 		}
 		printSuccess("Migration SQL generated")
+		report.SQL = migrationSQL
 
 		// Display migration plan
 		fmt.Println()
@@ -335,10 +368,12 @@ Examples:
 		newVersion, err := v.RegisterVersion(mergedSchemaPath, author, changesSummary)
 		if err != nil {
 			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "register_version"})
-			return fmt.Errorf("failed to register version: %w", err)
+			return cliout.Errorf(cliout.CodeInternal, "failed to register version: %w", err)
 		}
 
 		printSuccess("Registered as %s (hash: %s...)", newVersion.Version, newVersion.Hash[:12])
+		report.Version = newVersion.Version
+		report.Hash = newVersion.Hash
 		if newVersion.Parent != nil {
 			printInfo("Parent version: %s", *newVersion.Parent)
 		}
@@ -379,7 +414,8 @@ Examples:
 			})
 
 			journalLogger.LogError("migrate", err, map[string]interface{}{"action": "connect"})
-			return fmt.Errorf("failed to connect to database: %w", err)
+			return cliout.Errorf(cliout.CodeConnectionFailed, "failed to connect to database: %w", err).
+				WithHint("check database.connection_string in .chameleon.yml; the schema version was registered and can be retried")
 		}
 		defer conn.Close(connCtx)
 
@@ -427,7 +463,7 @@ Examples:
 			})
 
 			printError("Migration failed")
-			return fmt.Errorf("failed to execute migration: %w", err)
+			return cliout.Errorf(cliout.CodeApplyFailed, "failed to execute migration: %w", err)
 		}
 
 		duration := time.Since(startTime).Milliseconds()
@@ -476,6 +512,9 @@ Examples:
 			"duration": fmt.Sprintf("%dms", duration),
 		})
 
+		report.Applied = true
+		report.DurationMs = duration
+
 		fmt.Println()
 		printSuccess("Migration completed successfully!")
 		fmt.Println()
@@ -487,7 +526,7 @@ Examples:
 		fmt.Println()
 
 		if createdVault {
-			if err := afterFirstApply(v, journalLogger, migrateNoInput, migrateSetMode); err != nil {
+			if err := afterFirstApply(v, journalLogger, noInput(migrateNoInput), migrateSetMode); err != nil {
 				return err
 			}
 		}
@@ -503,7 +542,23 @@ Examples:
 	},
 }
 
+// migrateReport is the data of the --json envelope for migrate. sql is the
+// plan; it is always present when there are changes, applied or not.
+type migrateReport struct {
+	Mode             string `json:"mode"` // check | dry_run | apply
+	UpToDate         bool   `json:"up_to_date"`
+	Changed          bool   `json:"changed"`
+	PendingUnapplied bool   `json:"pending_unapplied"`
+	Summary          string `json:"summary,omitempty"`
+	SQL              string `json:"sql,omitempty"`
+	Applied          bool   `json:"applied"`
+	Version          string `json:"version,omitempty"`
+	Hash             string `json:"hash,omitempty"`
+	DurationMs       int64  `json:"duration_ms,omitempty"`
+}
+
 func init() {
+	supportJSON(migrateCmd)
 	migrateCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show migration SQL without applying")
 	migrateCmd.Flags().BoolVar(&applyMigration, "apply", false, "apply migration to database")
 	migrateCmd.Flags().BoolVar(&checkOnly, "check", false, "only check for pending migrations (default)")

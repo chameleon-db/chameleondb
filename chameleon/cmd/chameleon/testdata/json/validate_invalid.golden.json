@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "command": "chameleon validate",
+  "ok": false,
+  "data": {
+    "source": "bad.cham",
+    "valid": false
+  },
+  "errors": [
+    {
+      "code": "schema_invalid",
+      "message": "Unexpected token: Token(36, \"{\"), expected one of: r#\"[a-zA-Z_][a-zA-Z0-9_]*\"#",
+      "hint": "Entity definitions must have an opening brace.\nExample: entity User {",
+      "file": "bad.cham",
+      "line": 1,
+      "column": 8,
+      "snippet": "  1 │ entity {\n    │        ^"
+    }
+  ]
+}

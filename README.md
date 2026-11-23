@@ -210,6 +210,8 @@ Then `go get github.com/chameleon-db/chameleondb/chameleon@latest`. If the libra
 | Configuration | `config get`, `config set`, `config auth set-password` |
 | Development tools | `query`, `playground-sql` |
 
+`validate`, `status`, `verify`, `migrate` and `introspect` accept `--json` (one JSON document on stdout) and use stable exit codes; see [JSON output and exit codes](docs/cli-reference.md#json-output-and-exit-codes).
+
 See the [CLI reference](docs/cli-reference.md) for the current state and proposed changes of each command.
 
 ## Documentation
