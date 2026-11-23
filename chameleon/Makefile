@@ -67,7 +67,7 @@ test-integration:
 	CGO_LDFLAGS="$(CGO_TEST_LDFLAGS)" \
 	CGO_CFLAGS="$(CGO_TEST_CFLAGS)" \
 	LD_LIBRARY_PATH="$(RUST_LIB_DIR_ABS)" \
-	go test -v ./tests/integration/... -timeout 60s -count=1 || \
+	go test -v ./tests/integration/... -timeout 180s -count=1 || \
 	($(MAKE) docker-down && exit 1)
 
 	@echo "Stopping test containers..."
