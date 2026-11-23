@@ -1,5 +1,16 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+
+/// Serializes a map with its keys in order. The maps are HashMaps, whose
+/// iteration order changes from one run to the next; the schema JSON that
+/// crosses the FFI boundary must not.
+fn ordered_map<S, V>(map: &HashMap<String, V>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+    V: Serialize,
+{
+    map.iter().collect::<BTreeMap<_, _>>().serialize(serializer)
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Schema {
@@ -9,7 +20,9 @@ pub struct Schema {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Entity {
     pub name: String,
+    #[serde(serialize_with = "ordered_map")]
     pub fields: HashMap<String, Field>,
+    #[serde(serialize_with = "ordered_map")]
     pub relations: HashMap<String, Relation>,
 }
 
@@ -173,6 +186,26 @@ impl Entity {
         }
     }
     
+    /// Fields in the one order every generator and listing uses: the primary
+    /// key first, then alphabetical by name. `fields` is a HashMap, so nothing
+    /// may iterate it directly where the order reaches an output.
+    pub fn sorted_fields(&self) -> Vec<&Field> {
+        let mut fields: Vec<&Field> = self.fields.values().collect();
+        fields.sort_by(|a, b| {
+            b.primary_key
+                .cmp(&a.primary_key)
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        fields
+    }
+
+    /// Relations alphabetical by name (see `sorted_fields`).
+    pub fn sorted_relations(&self) -> Vec<&Relation> {
+        let mut relations: Vec<&Relation> = self.relations.values().collect();
+        relations.sort_by(|a, b| a.name.cmp(&b.name));
+        relations
+    }
+
     pub fn add_field(&mut self, field: Field) {
         self.fields.insert(field.name.clone(), field);
     }

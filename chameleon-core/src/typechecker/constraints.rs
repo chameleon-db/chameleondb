@@ -6,9 +6,9 @@ pub fn check_primary_keys(schema: &Schema) -> Vec<TypeCheckError> {
     let mut errors = Vec::new();
     
     for entity in &schema.entities {
-        let primary_keys: Vec<String> = entity.fields.iter()
-            .filter(|(_, field)| field.primary_key)
-            .map(|(name, _)| name.clone())
+        let primary_keys: Vec<String> = entity.sorted_fields().into_iter()
+            .filter(|field| field.primary_key)
+            .map(|field| field.name.clone())
             .collect();
         
         match primary_keys.len() {
@@ -31,10 +31,7 @@ pub fn check_field_modifiers(schema: &Schema) -> Vec<TypeCheckError> {
     let mut errors = Vec::new();
 
     for entity in &schema.entities {
-        let mut fields: Vec<_> = entity.fields.values().collect();
-        fields.sort_by(|a, b| a.name.cmp(&b.name));
-
-        for field in fields {
+        for field in entity.sorted_fields() {
             // A primary key is always NOT NULL in PostgreSQL
             if field.primary_key && field.nullable {
                 errors.push(TypeCheckError::NullablePrimaryKey {
@@ -68,7 +65,7 @@ pub fn check_annotations(schema: &Schema) -> Vec<TypeCheckError> {
     let mut errors = Vec::new();
 
     for entity in &schema.entities {
-    for (_, field) in &entity.fields {
+    for field in entity.sorted_fields() {
         if let Some(annotation) = &field.backend {
             // 1. @vector solo con tipo vector(N)
             if *annotation == BackendAnnotation::Vector {
@@ -112,7 +109,7 @@ pub fn check_defaults(schema: &Schema) -> Vec<TypeCheckError> {
     let mut errors = Vec::new();
 
     for entity in &schema.entities {
-        for (_, field) in &entity.fields {
+        for field in entity.sorted_fields() {
             let Some(default) = &field.default else {
                 continue;
             };

@@ -15,6 +15,7 @@ and this project adheres to Semantic Versioning (pre-1.0).
 - `chameleon init` writes a "For coding agents" section in `CHAMELEON.md`: command order, `--json`, exit codes, what not to touch. `chameleon init --agents` adds the same rules to `AGENTS.md` (created if missing; an existing file only gets a block starting with `# chameleon agents`, once). On a project that is already initialized, `init --agents` only touches `AGENTS.md`.
 
 ### Changed
+- Output that depended on hash-map order is now deterministic: the column list of `SELECT` queries and includes (primary key first, then alphabetical), the schema JSON that crosses the FFI boundary, the order of type-check errors, the field reported when several required fields are missing, and the list of duplicate entities. Migration DDL already used that column order. See "Output order" in `docs/cli-reference.md`.
 - Errors are printed once, to stderr, with passwords in connection strings redacted.
 
 ### Fixed

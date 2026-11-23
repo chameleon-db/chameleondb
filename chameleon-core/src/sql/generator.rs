@@ -270,7 +270,7 @@ fn build_select_columns(
     select_fields: &[String],
 ) -> Result<String, SqlGenError> {
     let names: Vec<&String> = if select_fields.is_empty() {
-        entity.fields.keys().collect()
+        entity.sorted_fields().into_iter().map(|f| &f.name).collect()
     } else {
         select_fields.iter().collect()
     };
@@ -552,8 +552,8 @@ fn build_eager_query_for_path(
         let target_table = table_for(&relation.target_entity)?;
 
         // Build columns
-        let columns = target_entity.fields.keys()
-            .map(|name| quote(name))
+        let columns = target_entity.sorted_fields().into_iter()
+            .map(|field| quote(&field.name))
             .collect::<Result<Vec<String>, SqlGenError>>()?;
 
         // Parent ids are bound as one array parameter

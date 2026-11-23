@@ -655,7 +655,12 @@ func resolveFieldName(entity *engine.Entity, field string) (string, bool) {
 		return trimmed, true
 	}
 
+	names := make([]string, 0, len(entity.Fields))
 	for name := range entity.Fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
 		if strings.EqualFold(name, trimmed) || strings.EqualFold(toSnakeCase(name), toSnakeCase(trimmed)) {
 			return name, true
 		}

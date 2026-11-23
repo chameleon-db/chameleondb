@@ -67,3 +67,15 @@ entity Order {
 		t.Fatalf("expected valid schema, got error: %v", err)
 	}
 }
+
+// Several duplicates are reported in alphabetical order, every time.
+func TestSimpleMergerValidateReportsDuplicatesInStableOrder(t *testing.T) {
+	merged := "entity Zeta {\n}\nentity Alpha {\n}\nentity Zeta {\n}\nentity Alpha {\n}\nentity Mid {\n}\nentity Mid {\n}\n"
+	want := "Alpha (appears 2 times), Mid (appears 2 times), Zeta (appears 2 times)"
+	for i := 0; i < 100; i++ {
+		err := NewSimpleMerger().Validate(merged)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("run %d: want %q in %v", i, want, err)
+		}
+	}
+}

@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -291,7 +292,10 @@ func (v *Validator) validateRequiredFields(
 	ent *Entity,
 	provided map[string]interface{},
 ) error {
-	for _, field := range ent.Fields {
+	// Sorted by name so that the field reported when several are missing does
+	// not depend on map iteration order.
+	for _, name := range sortedFieldNames(ent) {
+		field := ent.Fields[name]
 		if field.Nullable || field.Default != nil || field.PrimaryKey {
 			continue
 		}
@@ -309,11 +313,17 @@ func (v *Validator) validateRequiredFields(
 // HELPERS
 
 func (v *Validator) getAvailableFields(ent *Entity) []string {
-	var fields []string
+	return sortedFieldNames(ent)
+}
+
+// sortedFieldNames returns the field names in alphabetical order.
+func sortedFieldNames(ent *Entity) []string {
+	names := make([]string, 0, len(ent.Fields))
 	for name := range ent.Fields {
-		fields = append(fields, name)
+		names = append(names, name)
 	}
-	return fields
+	sort.Strings(names)
+	return names
 }
 
 func (v *Validator) getAvailableEntities() []string {
