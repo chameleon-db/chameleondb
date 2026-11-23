@@ -405,3 +405,43 @@ func TestExitCodeTableMatchesDocs(t *testing.T) {
 		}
 	}
 }
+
+func TestInitAgentsFlag(t *testing.T) {
+	// Without the flag: the guide has the section and nothing else is created.
+	plain := t.TempDir()
+	wantExit(t, runCLI(t, plain, "init", "--no-input"), 0)
+	if _, err := os.Stat(filepath.Join(plain, "AGENTS.md")); err == nil {
+		t.Fatal("init without --agents must not create AGENTS.md")
+	}
+	guide, err := os.ReadFile(filepath.Join(plain, "CHAMELEON.md"))
+	if err != nil || !strings.Contains(string(guide), "## For coding agents") {
+		t.Fatalf("CHAMELEON.md needs the agents section: %v", err)
+	}
+
+	// With the flag over an existing AGENTS.md: content intact, block last, once.
+	dir := t.TempDir()
+	original := "# Team rules\nUse tabs.\n"
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wantExit(t, runCLI(t, dir, "init", "--no-input", "--agents"), 0)
+	// On an initialized project, --agents only touches AGENTS.md (and is idempotent).
+	before, _ := os.ReadFile(filepath.Join(dir, ".chameleon.yml"))
+	wantExit(t, runCLI(t, dir, "init", "--agents"), 0)
+	after, _ := os.ReadFile(filepath.Join(dir, ".chameleon.yml"))
+	if string(before) != string(after) {
+		t.Error(".chameleon.yml must not change")
+	}
+	// Without the flag, init still refuses an initialized project.
+	wantExit(t, runCLI(t, dir, "init", "--no-input"), 1)
+	got, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(got), original) {
+		t.Errorf("the original content must stay intact:\n%s", got)
+	}
+	if strings.Count(string(got), "# chameleon agents") != 1 {
+		t.Errorf("the block must appear once:\n%s", got)
+	}
+}

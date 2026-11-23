@@ -18,6 +18,7 @@ var (
 	initCompose   bool
 	initDetectDB  bool
 	initNoExample bool
+	initAgents    bool
 	initNoInput   bool
 )
 
@@ -35,11 +36,16 @@ Always creates:
 When asked for (a question with a terminal, or a flag):
   docker-compose.yml    PostgreSQL 16 for local development
   .env.example          DATABASE_URL with a placeholder password
+  AGENTS.md             Rules for coding agents (--agents)
 
 init never overwrites a file it did not create. README.md is never touched.
 An existing .env.example only gets a block starting with "# chameleon env"
-appended, and only if it has no DATABASE_URL. A file that already exists is
+appended, and only if it has no DATABASE_URL. With --agents, an existing
+AGENTS.md only gets a block starting with "# chameleon agents" appended, once. A file that already exists is
 skipped and the output says so.
+
+chameleon init --agents on a project that is already initialized only adds the
+AGENTS.md block; nothing else is touched.
 
 If no name is provided, initializes in current directory.`,
 	Example: `  chameleon init myproject
@@ -58,6 +64,9 @@ If no name is provided, initializes in current directory.`,
 			// Check if already initialized
 			configPath := filepath.Join(workDir, ".chameleon.yml")
 			if _, err := os.Stat(configPath); err == nil {
+				if initAgents {
+					return addAgentsBlock(workDir)
+				}
 				return fmt.Errorf("project already initialized at %s\nRun 'chameleon migrate' to manage migrations or delete .chameleon.yml to reinitialize", workDir)
 			}
 
@@ -76,6 +85,9 @@ If no name is provided, initializes in current directory.`,
 			// Check if already initialized
 			configPath := filepath.Join(workDir, ".chameleon.yml")
 			if _, err := os.Stat(configPath); err == nil {
+				if initAgents {
+					return addAgentsBlock(workDir)
+				}
 				return fmt.Errorf("ChameleonDB already initialized in current directory\nRun 'chameleon migrate' to manage migrations or delete .chameleon.yml to reinitialize")
 			}
 
@@ -187,6 +199,12 @@ If no name is provided, initializes in current directory.`,
 			printWarning("CHAMELEON.md already exists; it was not changed")
 		}
 
+		if initAgents {
+			if err := addAgentsBlock(workDir); err != nil {
+				return err
+			}
+		}
+
 		// Print status
 		projectName := filepath.Base(workDir)
 		fmt.Println()
@@ -242,6 +260,7 @@ func init() {
 	initCmd.Flags().StringVar(&initDBURL, "db-url", "", "PostgreSQL connection string to use (printed as an export line; the config keeps ${DATABASE_URL})")
 	initCmd.Flags().BoolVar(&initCompose, "compose", false, "write a docker-compose.yml with PostgreSQL 16")
 	initCmd.Flags().BoolVar(&initDetectDB, "detect-db", false, "use the first PostgreSQL connection found in the environment, .env files or compose files")
+	initCmd.Flags().BoolVar(&initAgents, "agents", false, "add a block for coding agents to AGENTS.md (created if missing, never rewritten)")
 	initCmd.Flags().BoolVar(&initNoExample, "no-example", false, "do not create schemas/example.cham")
 	initCmd.Flags().BoolVar(&initNoInput, "no-input", false, "never ask questions (also the case without a terminal or with CI set)")
 	rootCmd.AddCommand(initCmd)
@@ -275,6 +294,31 @@ entity Comment {
     created_at: timestamp default now(),
 }
 `
+}
+
+// addAgentsBlock runs `init --agents`: it only adds the block to AGENTS.md.
+func addAgentsBlock(workDir string) error {
+	result, err := initwizard.WriteAgentsBlock(workDir)
+	if err != nil {
+		return err
+	}
+	switch result {
+	case initwizard.AgentsCreated:
+		printSuccess("Created AGENTS.md with the rules for coding agents")
+	case initwizard.AgentsAppended:
+		printSuccess("Added a \"# chameleon agents\" block to the end of AGENTS.md")
+	case initwizard.AgentsUnchanged:
+		printInfo("AGENTS.md already has the block; it was not changed")
+	}
+	return nil
+}
+
+// agentsSection is the part of CHAMELEON.md for coding agents. Every line has
+// to be true for the installed version (ADR-0002); init_helpers_test.go checks
+// that the commands it names exist.
+func agentsSection() string {
+	return "## For coding agents\n\nIf you are an AI coding agent working in this project, these rules apply.\n\n" +
+		initwizard.AgentsRules + "\n"
 }
 
 func exampleReadme(projectName string) string {
@@ -379,7 +423,7 @@ View history:
 chameleon journal migrations
 ` + "```" + `
 
-## Development
+` + agentsSection() + `## Development
 
 ### Validate schema
 

@@ -600,3 +600,55 @@ func TestResolve_ExistingSchemasSkipTheExample(t *testing.T) {
 		t.Errorf("--no-example is already a decision: %+v", res)
 	}
 }
+
+func TestWriteAgentsBlockCreatesFile(t *testing.T) {
+	dir := t.TempDir()
+	res, err := WriteAgentsBlock(dir)
+	if err != nil || res != AgentsCreated {
+		t.Fatalf("res=%v err=%v", res, err)
+	}
+	if got := readFile(t, dir, "AGENTS.md"); got != AgentsBlock() || !strings.HasPrefix(got, "# chameleon agents\n") {
+		t.Fatalf("unexpected content:\n%s", got)
+	}
+}
+
+func TestWriteAgentsBlockKeepsExistingContent(t *testing.T) {
+	for _, original := range []string{"# My agents\nUse tabs.\n", "no newline at end", "ends with blank\n\n", ""} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(original), 0644); err != nil {
+			t.Fatal(err)
+		}
+		res, err := WriteAgentsBlock(dir)
+		if err != nil || res != AgentsAppended {
+			t.Fatalf("%q: res=%v err=%v", original, res, err)
+		}
+		got := readFile(t, dir, "AGENTS.md")
+		if !strings.HasPrefix(got, original) || !strings.HasSuffix(got, AgentsBlock()) {
+			t.Fatalf("%q: original must stay intact and the block go last:\n%s", original, got)
+		}
+	}
+}
+
+func TestWriteAgentsBlockIsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := WriteAgentsBlock(dir); err != nil {
+		t.Fatal(err)
+	}
+	first := readFile(t, dir, "AGENTS.md")
+	res, err := WriteAgentsBlock(dir)
+	if err != nil || res != AgentsUnchanged {
+		t.Fatalf("res=%v err=%v", res, err)
+	}
+	if readFile(t, dir, "AGENTS.md") != first || strings.Count(first, AgentsBlockMarker) != 1 {
+		t.Fatal("the block must appear once")
+	}
+}
+
+func TestAgentsBlockMakesNoFalseClaims(t *testing.T) {
+	block := AgentsBlock()
+	for _, claim := range []string{"backup is created", "approval", "will ask", "secure", "compliance", "audit"} {
+		if strings.Contains(strings.ToLower(block), claim) {
+			t.Errorf("the block must not mention %q", claim)
+		}
+	}
+}

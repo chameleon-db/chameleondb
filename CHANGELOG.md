@@ -12,6 +12,8 @@ and this project adheres to Semantic Versioning (pre-1.0).
 - `--json` for `validate`, `status`, `verify`, `migrate` and `introspect`: stdout holds one JSON document (`schema_version`, `command`, `ok`, `data`, `errors`) and the human output goes to stderr. Errors carry a stable `code` and, for schema errors, `file`, `line`, `column` and `snippet`. `--json` never asks questions. See "JSON output and exit codes" in `docs/cli-reference.md`.
 - Stable exit codes, the same with and without `--json`: 2 usage, 3 invalid schema, 4 blocked by the mode, 5 integrity failure, 6 database unreachable, 7 not initialized, 8 migration rejected (1 for anything else). Before, every failure exited 1.
 
+- `chameleon init` writes a "For coding agents" section in `CHAMELEON.md`: command order, `--json`, exit codes, what not to touch. `chameleon init --agents` adds the same rules to `AGENTS.md` (created if missing; an existing file only gets a block starting with `# chameleon agents`, once). On a project that is already initialized, `init --agents` only touches `AGENTS.md`.
+
 ### Changed
 - Errors are printed once, to stderr, with passwords in connection strings redacted.
 
