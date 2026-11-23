@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "command": "chameleon migrate",
+  "ok": true,
+  "data": {
+    "mode": "dry_run",
+    "up_to_date": false,
+    "changed": true,
+    "pending_unapplied": false,
+    "summary": "Initial schema",
+    "sql": "CREATE TABLE IF NOT EXISTS users (\n    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n    created_at TIMESTAMP NOT NULL DEFAULT NOW(),\n    email VARCHAR NOT NULL UNIQUE,\n    name VARCHAR NOT NULL\n);\n\nCREATE TABLE IF NOT EXISTS posts (\n    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n    author_id UUID NOT NULL,\n    content VARCHAR NOT NULL,\n    created_at TIMESTAMP NOT NULL DEFAULT NOW(),\n    published BOOLEAN NOT NULL,\n    title VARCHAR NOT NULL\n);\n\nCREATE TABLE IF NOT EXISTS comments (\n    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n    content VARCHAR NOT NULL,\n    created_at TIMESTAMP NOT NULL DEFAULT NOW(),\n    post_id UUID NOT NULL,\n    user_id UUID NOT NULL\n);",
+    "applied": false
+  },
+  "errors": []
+}

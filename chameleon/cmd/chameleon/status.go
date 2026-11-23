@@ -12,84 +12,166 @@ import (
 var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show ChameleonDB status",
-	Long:  `Display current status of schema, vault, and database connection.`,
-	Run:   runStatus,
+	Long: `Display current status of schema, vault, and database connection.
+
+With --json it prints one document with the same information. status reports;
+it exits 0 even when the vault has problems. Use 'chameleon verify' for a
+pass/fail check.`,
+	Run: runStatus,
 }
 
 func init() {
+	supportJSON(statusCmd)
 	rootCmd.AddCommand(statusCmd)
+}
+
+// Schema states reported by status.
+const (
+	schemaStateNoVault    = "no_vault"
+	schemaStateNoVersions = "no_versions"
+	schemaStateUpToDate   = "up_to_date"
+	schemaStateModified   = "modified"
+	// schemaStateUnknown: the vault or the project schemas could not be read.
+	schemaStateUnknown = "unknown"
+)
+
+// statusSchema is the schema half of the status report.
+type statusSchema struct {
+	State          string     `json:"state"`
+	CurrentVersion string     `json:"current_version,omitempty"`
+	Hash           string     `json:"hash,omitempty"`
+	LastModified   *time.Time `json:"last_modified,omitempty"`
+	Error          string     `json:"error,omitempty"`
+}
+
+// statusVault is the vault half of the status report.
+type statusVault struct {
+	Initialized bool     `json:"initialized"`
+	Versions    int      `json:"versions"`
+	Integrity   string   `json:"integrity,omitempty"` // ok, failed or error
+	Issues      []string `json:"issues"`
+	Mode        string   `json:"mode,omitempty"`
+	Error       string   `json:"error,omitempty"`
+}
+
+type statusReport struct {
+	Schema statusSchema `json:"schema"`
+	Vault  statusVault  `json:"vault"`
 }
 
 func runStatus(cmd *cobra.Command, args []string) {
 	v := vault.NewVault(".")
 
+	workDir, wdErr := os.Getwd()
+	report := buildStatusReport(v, workDir, wdErr)
+	setResult(report)
+
 	fmt.Println("🗂️  ChameleonDB Status")
 	fmt.Println("────────────────────────────────────────────")
 	fmt.Println()
 
-	// Schema status
-	showSchemaStatus(v)
+	printSchemaStatus(report.Schema)
 	fmt.Println()
 
-	// Vault status
-	showVaultStatus(v)
+	printVaultStatus(report.Vault)
 	fmt.Println()
 
 	// Configuration
 	showConfiguration()
 }
 
-func showSchemaStatus(v *vault.Vault) {
-	fmt.Println("Schema:")
+// buildStatusReport gathers what status shows. It never fails: a part that
+// cannot be read is reported with its error.
+func buildStatusReport(v *vault.Vault, workDir string, wdErr error) statusReport {
+	return statusReport{
+		Schema: buildSchemaStatus(v, workDir, wdErr),
+		Vault:  buildVaultStatus(v),
+	}
+}
 
+func buildSchemaStatus(v *vault.Vault, workDir string, wdErr error) statusSchema {
 	if !v.Exists() {
-		fmt.Println("  Status:          ⚠️  No vault initialized")
-		fmt.Println("  Action:          Run 'chameleon migrate' to start")
-		return
+		return statusSchema{State: schemaStateNoVault}
 	}
 
 	status, err := v.GetStatus()
 	if err != nil {
-		fmt.Printf("  Status:          ❌ Error: %v\n", err)
-		return
+		return statusSchema{State: schemaStateUnknown, Error: err.Error()}
 	}
 
 	if status.CurrentVersion == "" {
-		fmt.Println("  Status:          ⚠️  No versions registered")
-		return
+		return statusSchema{State: schemaStateNoVersions}
 	}
 
-	fmt.Printf("  Current version:  %s\n", status.CurrentVersion)
+	out := statusSchema{CurrentVersion: status.CurrentVersion}
 
 	// Get current version details
-	entry, err := v.GetCurrentVersion()
-	if err == nil {
-		fmt.Printf("  Hash:            %s...\n", entry.Hash[:12])
-		fmt.Printf("  Last modified:   %s\n", formatTimeSince(entry.Timestamp))
+	if entry, err := v.GetCurrentVersion(); err == nil {
+		out.Hash = entry.Hash
+		ts := entry.Timestamp
+		out.LastModified = &ts
 	}
 
 	// Compare the project schemas (as 'migrate' merges them) with the current version
-	workDir, err := os.Getwd()
-	if err != nil {
-		fmt.Printf("  Status:          ⚠️  Could not get working directory: %v\n", err)
-		return
+	if wdErr != nil {
+		out.State = schemaStateUnknown
+		out.Error = "Could not get working directory: " + wdErr.Error()
+		return out
 	}
 
 	merged, err := loadProjectSchema(workDir)
 	if err != nil {
-		fmt.Printf("  Status:          ⚠️  Could not read project schemas: %v\n", err)
-		return
+		out.State = schemaStateUnknown
+		out.Error = "Could not read project schemas: " + err.Error()
+		return out
 	}
 
 	changed, err := schemaDiffersFromVault(v, merged)
 	if err != nil {
-		fmt.Printf("  Status:          ⚠️  Could not compare schema: %v\n", err)
-		return
+		out.State = schemaStateUnknown
+		out.Error = "Could not compare schema: " + err.Error()
+		return out
 	}
 	if changed {
-		fmt.Println("  Status:          ⚠️  Schema modified (not registered)")
+		out.State = schemaStateModified
 	} else {
+		out.State = schemaStateUpToDate
+	}
+	return out
+}
+
+func printSchemaStatus(s statusSchema) {
+	fmt.Println("Schema:")
+
+	switch s.State {
+	case schemaStateNoVault:
+		fmt.Println("  Status:          ⚠️  No vault initialized")
+		fmt.Println("  Action:          Run 'chameleon migrate' to start")
+		return
+	case schemaStateNoVersions:
+		fmt.Println("  Status:          ⚠️  No versions registered")
+		return
+	}
+
+	if s.CurrentVersion == "" {
+		// The vault itself could not be read.
+		fmt.Printf("  Status:          ❌ Error: %s\n", s.Error)
+		return
+	}
+
+	fmt.Printf("  Current version:  %s\n", s.CurrentVersion)
+	if s.LastModified != nil {
+		fmt.Printf("  Hash:            %s...\n", s.Hash[:12])
+		fmt.Printf("  Last modified:   %s\n", formatTimeSince(*s.LastModified))
+	}
+
+	switch s.State {
+	case schemaStateModified:
+		fmt.Println("  Status:          ⚠️  Schema modified (not registered)")
+	case schemaStateUpToDate:
 		fmt.Println("  Status:          ✓ Up to date")
+	default:
+		fmt.Printf("  Status:          ⚠️  %s\n", s.Error)
 	}
 }
 
@@ -115,36 +197,66 @@ func schemaDiffersFromVault(v *vault.Vault, merged string) (bool, error) {
 	return changed, err
 }
 
-func showVaultStatus(v *vault.Vault) {
+func buildVaultStatus(v *vault.Vault) statusVault {
+	out := statusVault{Issues: []string{}}
+	if !v.Exists() {
+		return out
+	}
+	out.Initialized = true
+
+	status, err := v.GetStatus()
+	if err != nil {
+		out.Error = err.Error()
+		return out
+	}
+	out.Versions = status.TotalVersions
+
+	// Verify integrity
+	result, err := v.VerifyIntegrity()
+	switch {
+	case err != nil:
+		out.Integrity = "error"
+		out.Error = err.Error()
+	case result.Valid:
+		out.Integrity = "ok"
+	default:
+		out.Integrity = "failed"
+		out.Issues = append(out.Issues, result.Issues...)
+	}
+
+	if mode, err := v.GetParanoidMode(); err == nil {
+		out.Mode = mode
+	}
+	return out
+}
+
+func printVaultStatus(s statusVault) {
 	fmt.Println("Vault:")
 
-	if !v.Exists() {
+	if !s.Initialized {
 		fmt.Println("  Status:          Not initialized")
 		return
 	}
 
-	status, err := v.GetStatus()
-	if err != nil {
-		fmt.Printf("  Status:          Error: %v\n", err)
+	if s.Integrity == "" {
+		// GetStatus failed: nothing else was read.
+		fmt.Printf("  Status:          Error: %s\n", s.Error)
 		return
 	}
 
-	fmt.Printf("  Versions:        %d registered\n", status.TotalVersions)
+	fmt.Printf("  Versions:        %d registered\n", s.Versions)
 
-	// Verify integrity
-	result, err := v.VerifyIntegrity()
-	if err != nil {
-		fmt.Printf("  Integrity:       ❌ Error: %v\n", err)
-	} else if result.Valid {
+	switch s.Integrity {
+	case "error":
+		fmt.Printf("  Integrity:       ❌ Error: %s\n", s.Error)
+	case "ok":
 		fmt.Println("  Integrity:       ✓ OK")
-	} else {
-		fmt.Printf("  Integrity:       ❌ %d issues\n", len(result.Issues))
+	default:
+		fmt.Printf("  Integrity:       ❌ %d issues\n", len(s.Issues))
 	}
 
-	mode, err := v.GetParanoidMode()
-	if err == nil {
-		modeIcon := getModeIcon(mode)
-		fmt.Printf("  Mode:            %s %s\n", modeIcon, mode)
+	if s.Mode != "" {
+		fmt.Printf("  Mode:            %s %s\n", getModeIcon(s.Mode), s.Mode)
 	}
 }
 

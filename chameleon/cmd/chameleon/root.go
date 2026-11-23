@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 
+	"github.com/chameleon-db/chameleondb/chameleon/internal/cliout"
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -30,20 +31,17 @@ Get started:
   cd myproject
   chameleon validate
   chameleon migrate --apply`,
-	SilenceUsage:  true,
-	SilenceErrors: true,
+	SilenceUsage:      true,
+	SilenceErrors:     true,
+	PersistentPreRunE: prepareOutput,
 }
 
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
-}
-
-// Execute runs the root command
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		errorColor.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "print one JSON document on stdout; human output goes to stderr (validate, status, verify, migrate, introspect)")
+	rootCmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return cliout.Wrap(cliout.CodeUsage, err)
+	})
 }
 
 // Helper functions for consistent output

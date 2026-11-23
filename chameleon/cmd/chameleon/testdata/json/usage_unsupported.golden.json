@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "command": "chameleon init",
+  "ok": false,
+  "data": {},
+  "errors": [
+    {
+      "code": "usage_error",
+      "message": "--json is not supported by \"chameleon init\"",
+      "hint": "--json works with: validate, status, verify, migrate, introspect"
+    }
+  ]
+}

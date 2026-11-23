@@ -39,7 +39,69 @@ Dispositions: **keep** (core to the vision), **rework** (keep the name, change b
 
 ## Conventions to adopt
 
-- Machine-readable output (`--output json`) for every command that reports state.
+- Machine-readable output (`--json`) for every command that reports state. Available today for `validate`, `status`, `verify`, `migrate` and `introspect`; see [JSON output and exit codes](#json-output-and-exit-codes).
 - Stable exit codes, documented.
 - No command prints a guarantee it did not verify.
 - Commands that change a database support `--dry-run` and show the SQL.
+
+## JSON output and exit codes
+
+`validate`, `status`, `verify`, `migrate` and `introspect` accept `--json`. With it, **stdout holds exactly one JSON document** and nothing else; the human output (progress, warnings) goes to stderr. Any other command with `--json` fails with `usage_error`. `--json` also implies `--no-input`: nothing is ever asked, and a step that would need a confirmation fails with `usage_error` and a hint (for example `introspect` over an existing schema needs `--force`).
+
+### Envelope
+
+```json
+{
+  "schema_version": 1,
+  "command": "chameleon validate",
+  "ok": false,
+  "data": { "source": "bad.cham", "valid": false },
+  "errors": [
+    {
+      "code": "schema_invalid",
+      "message": "Unexpected token: ...",
+      "hint": "Entity definitions must have an opening brace.",
+      "file": "bad.cham",
+      "line": 1,
+      "column": 8,
+      "snippet": "  1 │ entity {\n    │        ^"
+    }
+  ]
+}
+```
+
+- `schema_version` changes only when a field is removed or changes meaning. New fields can be added without a bump, so parse leniently.
+- `ok` is `true` exactly when `errors` is empty. `data` is always an object and `errors` always an array, never `null`.
+- `data` may be filled on failure too (for example `verify` lists the versions it checked).
+- `errors[].code` is one of the codes below. `hint`, `file`, `line`, `column` and `snippet` appear only when known.
+- Passwords in connection strings (`scheme://user:password@host`, `password=...`) are redacted in every output, with or without `--json`.
+
+### Exit codes
+
+The exit code is the same with and without `--json`.
+
+| Exit | `errors[].code` | Meaning |
+|---|---|---|
+| 0 | | Success |
+| 1 | `internal_error` | Unexpected failure with no more specific class |
+| 2 | `usage_error` | Wrong flag, argument or command; also a prompt that `--json` cannot answer |
+| 3 | `schema_invalid` | The schema does not parse or type-check |
+| 4 | `mode_blocked` | The operation is refused by the paranoid mode |
+| 5 | `integrity_failed` | Vault integrity check failed, or `mode.json` was edited outside the CLI |
+| 6 | `connection_failed` | The database could not be reached |
+| 7 | `not_initialized` | Not a ChameleonDB project (no configuration or no vault) |
+| 8 | `apply_failed` | The database rejected the migration |
+
+`status` is the diagnostic command: it exits 0 and reports a failed integrity check in `data.vault.integrity`. Use `verify` when you need a non-zero exit.
+
+### `data` per command
+
+| Command | `data` |
+|---|---|
+| `validate` | `valid` (bool), `source` (file or `project schemas`) |
+| `status` | `schema` (`state`, `current_version`, `hash`, `last_modified`, `error`), `vault` (`initialized`, `versions`, `integrity`, `issues`, `mode`, `error`) |
+| `verify` | `valid`, `versions[]` (`version`, `ok`, `issue`), `issues[]`, `schema_file` (`exists`, `matches_current`) |
+| `migrate` | `mode` (`check`, `dry_run`, `apply`), `up_to_date`, `changed`, `pending_unapplied`, `summary`, `sql` (the plan), `applied`, `version`, `hash`, `duration_ms` |
+| `introspect` | `output`, `tables`, `duration_ms` |
+
+Without a database you can already use `validate`, `migrate --dry-run`, `status` and `verify`.

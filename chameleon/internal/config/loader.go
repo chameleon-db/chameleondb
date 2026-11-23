@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,10 @@ import (
 // WarnWriter receives the warnings about config keys that have no effect.
 // Tests replace it.
 var WarnWriter io.Writer = os.Stderr
+
+// ErrNotFound is wrapped by Load when .chameleon.yml does not exist, so callers
+// can tell "not a project" from a broken file.
+var ErrNotFound = errors.New("config file not found")
 
 var warned sync.Map // "<file>|<key>" -> struct{}: one warning per key per process
 
@@ -44,7 +49,7 @@ func NewLoader(workDir string) *Loader {
 func (l *Loader) Load() (*Config, error) {
 	// Check if file exists
 	if _, err := os.Stat(l.filePath); err != nil {
-		return nil, fmt.Errorf("config file not found: %s\nRun 'chameleon init' to create one", l.filePath)
+		return nil, fmt.Errorf("%w: %s\nRun 'chameleon init' to create one", ErrNotFound, l.filePath)
 	}
 
 	// Read file

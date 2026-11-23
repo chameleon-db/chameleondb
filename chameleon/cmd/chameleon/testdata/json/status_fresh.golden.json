@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "command": "chameleon status",
+  "ok": true,
+  "data": {
+    "schema": {
+      "state": "no_vault"
+    },
+    "vault": {
+      "initialized": false,
+      "versions": 0,
+      "issues": []
+    }
+  },
+  "errors": []
+}

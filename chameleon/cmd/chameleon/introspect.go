@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/chameleon-db/chameleondb/chameleon/internal/admin"
+	"github.com/chameleon-db/chameleondb/chameleon/internal/cliout"
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/engine/introspect"
 	"github.com/chameleon-db/chameleondb/chameleon/pkg/vault"
 	"github.com/spf13/cobra"
@@ -19,6 +21,13 @@ var (
 	introspectOutput string
 	introspectForce  bool
 )
+
+// introspectReport is the data of the --json envelope for introspect.
+type introspectReport struct {
+	Output     string `json:"output"`
+	Tables     int    `json:"tables"`
+	DurationMs int64  `json:"duration_ms"`
+}
 
 var envVarNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
@@ -33,13 +42,16 @@ Examples:
   chameleon introspect postgresql://user:pass@localhost/mydb
   chameleon introspect postgresql://... -o schema.cham
   chameleon introspect postgresql://... --output schema.cham
-  chameleon introspect postgresql://... --force  # Overwrite existing schema`,
+  chameleon introspect postgresql://... --force  # Overwrite existing schema
+
+With --json it never asks questions: if the output file would need a
+confirmation, it fails with usage_error (use --force or -o).`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		startedAt := time.Now()
 		connStr, err := resolveIntrospectConnectionString(args[0])
 		if err != nil {
-			return err
+			return cliout.Wrap(cliout.CodeUsage, err)
 		}
 
 		outputFile := "schemas/" + introspectOutput
@@ -52,13 +64,13 @@ Examples:
 
 		workDir, err := os.Getwd()
 		if err != nil {
-			return fmt.Errorf("failed to get working directory: %w", err)
+			return cliout.Errorf(cliout.CodeInternal, "failed to get working directory: %w", err)
 		}
 
 		factory := admin.NewManagerFactory(workDir)
 		journalLogger, err := factory.CreateJournalLogger()
 		if err != nil {
-			return fmt.Errorf("failed to initialize journal: %w", err)
+			return cliout.Errorf(cliout.CodeInternal, "failed to initialize journal: %w", err)
 		}
 
 		baseDetails := map[string]interface{}{
@@ -72,7 +84,7 @@ Examples:
 			mode, modeErr := v.GetParanoidMode()
 			if modeErr != nil {
 				_ = journalLogger.LogError("introspect", modeErr, map[string]interface{}{"action": "read_mode"})
-				return fmt.Errorf("failed to read paranoid mode: %w", modeErr)
+				return cliout.Errorf(cliout.CodeIntegrityFailed, "failed to read paranoid mode: %w", modeErr)
 			}
 
 			if mode == "readonly" {
@@ -87,7 +99,8 @@ Examples:
 					"mode":   mode,
 					"output": outputFile,
 				}, nil)
-				return fmt.Errorf("readonly mode: introspect is blocked")
+				return cliout.New(cliout.CodeModeBlocked, "readonly mode: introspect is blocked").
+					WithHint("upgrade the mode first: chameleon config auth set-password && chameleon config set mode=standard")
 			}
 
 			printInfo("Paranoid Mode active: %s", mode)
@@ -101,7 +114,11 @@ Examples:
 		outputFile, err = validateAndGetOutputPath(outputFile)
 		if err != nil {
 			_ = journalLogger.LogError("introspect", err, map[string]interface{}{"action": "validate_output"})
-			return err
+			var ce *cliout.Error
+			if errors.As(err, &ce) {
+				return err
+			}
+			return cliout.Wrap(cliout.CodeUsage, err)
 		}
 
 		printInfo("Introspecting database...")
@@ -112,7 +129,7 @@ Examples:
 		inspector, err := introspect.NewIntrospector(ctx, connStr)
 		if err != nil {
 			_ = journalLogger.LogError("introspect", err, map[string]interface{}{"action": "create_introspector"})
-			return fmt.Errorf("failed to create introspector: %w", err)
+			return cliout.Errorf(cliout.CodeConnectionFailed, "failed to create introspector: %w", err)
 		}
 		defer inspector.Close()
 
@@ -120,12 +137,12 @@ Examples:
 		detected, err := inspector.Detect(ctx)
 		if err != nil {
 			_ = journalLogger.LogError("introspect", err, map[string]interface{}{"action": "detect_database"})
-			return fmt.Errorf("failed to detect database: %w", err)
+			return cliout.Errorf(cliout.CodeConnectionFailed, "failed to detect database: %w", err)
 		}
 		if !detected {
 			detectErr := fmt.Errorf("failed to connect or detect database type")
 			_ = journalLogger.LogError("introspect", detectErr, map[string]interface{}{"action": "detect_database"})
-			return detectErr
+			return cliout.Wrap(cliout.CodeConnectionFailed, detectErr)
 		}
 
 		printSuccess("Database detected")
@@ -136,7 +153,7 @@ Examples:
 		tables, err := inspector.GetAllTables(ctx)
 		if err != nil {
 			_ = journalLogger.LogError("introspect", err, map[string]interface{}{"action": "scan_tables"})
-			return fmt.Errorf("introspection failed: %w", err)
+			return cliout.Errorf(cliout.CodeInternal, "introspection failed: %w", err)
 		}
 
 		printSuccess(fmt.Sprintf("Found %d table(s)", len(tables)))
@@ -147,7 +164,7 @@ Examples:
 		schema, err := introspect.GenerateChameleonSchema(tables)
 		if err != nil {
 			_ = journalLogger.LogError("introspect", err, map[string]interface{}{"action": "generate_schema"})
-			return fmt.Errorf("schema generation failed: %w", err)
+			return cliout.Errorf(cliout.CodeInternal, "schema generation failed: %w", err)
 		}
 
 		// Write schema output with overwrite safety checks.
@@ -164,6 +181,7 @@ Examples:
 		}, nil)
 
 		printSuccess(fmt.Sprintf("Schema written to %s", outputFile))
+		setResult(introspectReport{Output: outputFile, Tables: len(tables), DurationMs: durationMs})
 		printInfo("\nNext steps:")
 		fmt.Println("  1. Review schema and adjust relations manually")
 		fmt.Println("  2. Run: chameleon validate")
@@ -234,6 +252,14 @@ func validateAndGetOutputPath(outputFile string) (string, error) {
 	}
 
 	// File exists - need to validate if it's safe to overwrite
+	if jsonOutput {
+		content, readErr := os.ReadFile(outputFile)
+		if readErr == nil && !isDefaultSchema(string(content)) && !isModifiedSchema(string(content)) && !isEmpty(string(content)) {
+			return outputFile, nil
+		}
+		return "", cliout.New(cliout.CodeUsage, "output file exists and would need a confirmation: "+outputFile).
+			WithHint("use --force to overwrite or -o to choose another file")
+	}
 	return checkExistingSchemaAndGetOutput(outputFile)
 }
 
@@ -424,6 +450,7 @@ func safeWriteSchema(filePath string, schema string) error {
 }
 
 func init() {
+	supportJSON(introspectCmd)
 	introspectCmd.Flags().StringVarP(
 		&introspectOutput, "output", "o", "schema.cham",
 		"Output file for generated schema",
