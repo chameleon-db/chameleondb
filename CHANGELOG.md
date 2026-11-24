@@ -8,20 +8,30 @@ and this project adheres to Semantic Versioning (pre-1.0).
 
 ## [Unreleased]
 
-### Added
-- `--json` for `validate`, `status`, `verify`, `migrate` and `introspect`: stdout holds one JSON document (`schema_version`, `command`, `ok`, `data`, `errors`) and the human output goes to stderr. Errors carry a stable `code` and, for schema errors, `file`, `line`, `column` and `snippet`. `--json` never asks questions. See "JSON output and exit codes" in `docs/cli-reference.md`.
-- Stable exit codes, the same with and without `--json`: 2 usage, 3 invalid schema, 4 blocked by the mode, 5 integrity failure, 6 database unreachable, 7 not initialized, 8 migration rejected (1 for anything else). Before, every failure exited 1.
+## [v1.3.0] - 2026-11-23
 
+Machine-readable output and stable exit codes, rules for coding agents, and deterministic generated output. **Behavior change:** commands that failed with exit code 1 now use codes 2 to 8; see "Changed".
+
+### Added
+- `--json` for `validate`, `status`, `verify`, `migrate` and `introspect`: stdout holds one JSON document (`schema_version`, `command`, `ok`, `data`, `errors`) and the human output goes to stderr. Errors carry a stable `code` and, for schema errors, `file`, `line`, `column` and `snippet`. `--json` never asks questions: a step that would need a confirmation fails with `usage_error` and a hint. See "JSON output and exit codes" in `docs/cli-reference.md`.
+- Stable exit codes, the same with and without `--json`: 2 usage, 3 invalid schema, 4 blocked by the mode, 5 integrity failure, 6 database unreachable, 7 not initialized, 8 migration rejected (1 for anything else).
 - `chameleon init` writes a "For coding agents" section in `CHAMELEON.md`: command order, `--json`, exit codes, what not to touch. `chameleon init --agents` adds the same rules to `AGENTS.md` (created if missing; an existing file only gets a block starting with `# chameleon agents`, once). On a project that is already initialized, `init --agents` only touches `AGENTS.md`.
+- Integration tests that run the CLI with `--json` against PostgreSQL: first apply, up to date, a second version, readonly refusal, unreachable database and retry, rejected migration, introspect.
 
 ### Changed
-- Output that depended on hash-map order is now deterministic: the column list of `SELECT` queries and includes (primary key first, then alphabetical), the schema JSON that crosses the FFI boundary, the order of type-check errors, the field reported when several required fields are missing, and the list of duplicate entities. Migration DDL already used that column order. See "Output order" in `docs/cli-reference.md`.
+- **Exit codes:** failures used to exit 1. They now exit 2 to 8 as listed above. A script that tests `$? -ne 0` keeps working; one that tests `$? -eq 1` does not.
 - Errors are printed once, to stderr, with passwords in connection strings redacted.
+- Output that depended on hash-map order is now deterministic: the column list of `SELECT` queries and includes (primary key first, then alphabetical), the schema JSON that crosses the FFI boundary, the order of type-check errors, the field reported when several required fields are missing, and the list of duplicate entities. Migration DDL already used that column order. See "Output order" in `docs/cli-reference.md`.
 
 ### Fixed
 - The install script no longer fails its final check when `CHAMELEON_LIB_DIR` is not `/usr/local/lib` (or `/opt/homebrew/lib` on macOS). The files were installed correctly but the binary could not find its library, so the script reported "Installation verification failed". It now retries the check with the library directory in `LD_LIBRARY_PATH` (`DYLD_LIBRARY_PATH` on macOS) and, on success, prints the `export` line to add to the shell profile and the error you will see without it. With the default directories nothing changes.
 - The install script skips `ldconfig` for a custom library directory (it does not index it, and a non-root install should not ask for `sudo`), and a failing `ldconfig` is now a warning instead of aborting the install.
 - The "Add ... to your PATH" hint printed `\$PATH` with a backslash; it now prints `$PATH` so the line can be pasted into a profile.
+
+### Known issues
+- In `readonly` mode, a retry after a first `migrate --apply` that could not reach the database is refused with `mode_blocked` (exit 4), even though the version is registered and pending. Set a password and `standard` mode to retry.
+- `migrate --dry-run` creates the vault, so a later `migrate --apply --set-mode standard` does not switch the mode (that flow only runs when the apply creates the vault) and says nothing about it.
+- `introspect` in a directory without a vault skips the mode check and prints a warning.
 
 ## [v1.2.0] - 2026-11-09
 
